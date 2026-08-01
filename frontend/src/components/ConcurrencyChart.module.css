@@ -1,0 +1,51 @@
+.wrap {
+  position: relative;
+}
+
+.svg {
+  width: 100%;
+  height: 360px;
+  display: block;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 40%),
+  var(--bg-panel);
+}
+
+.grid {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.axisLabel {
+  fill: var(--ink-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.glow {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.legend {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  display: flex;
+  gap: 1.1rem;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+}

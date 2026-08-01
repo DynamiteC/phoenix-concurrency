@@ -1,0 +1,56 @@
+.bank {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+
+.switch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.55rem 1.1rem;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.switch:last-child {
+  border-right: none;
+}
+
+.switch:hover {
+  background: var(--bg-raised);
+}
+
+.label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  color: var(--ink-dim);
+}
+
+.hint {
+  font-size: 0.6rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.switch.active {
+  background: linear-gradient(180deg, rgba(255, 92, 57, 0.14), rgba(255, 92, 57, 0.04));
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.switch.active .label {
+  color: var(--ink);
+}
+
+.switch.active .hint {
+  color: var(--signal);
+}
