@@ -43,17 +43,25 @@ if [ "$(val "SELECT parseDateTimeBestEffort('$from_ts') >= parseDateTimeBestEffo
 fi
 
 t0=$(date +%s)
-./scripts/ch.sh --param_tolerance_s="${TOLERANCE_S:-90}" --param_pause_inactive="${PAUSE_INACTIVE:-1}" \
-  --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
-  --queries-file sql/pipeline/03_derive_incremental.sql
+# Up to two passes. A session whose first in-window event arrives BETWEEN the retract and
+# the assert gets asserted without being retracted; if a late content row also flipped its
+# dims, two variants of the same run are briefly live and the dupes invariant trips.
+# Measured live 2026-08-01 18:45: exactly this signature, healed by one retry, because the
+# retract emits sum(sign) retractions per group and zeroes any accumulated state. So one
+# in-tick retry absorbs the known-transient race; a failure that survives it is real.
+for attempt in 1 2; do
+  ./scripts/ch.sh --param_tolerance_s="${TOLERANCE_S:-90}" --param_pause_inactive="${PAUSE_INACTIVE:-1}" \
+    --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
+    --queries-file sql/pipeline/03_derive_incremental.sql
+  closure="$(val "SELECT sum(delta) FROM concurrency_deltas")"
+  dupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM session_minute_runs GROUP BY video_session_id, run_start, run_end HAVING s > 0)")"
+  [ "$closure" = "0" ] && [ "$dupes" = "1" ] && break
+  echo "$(date -u +%FT%TZ) $DB attempt $attempt tripped invariants: closure=$closure dupes=$dupes, retrying same window" >>"$LOG"
+done
 t1=$(date +%s)
 
-# Post-tick invariants: the two that catch a broken tick immediately. Closure must hold,
-# and no (session, minute) may be asserted twice.
-closure="$(val "SELECT sum(delta) FROM concurrency_deltas")"
-dupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM session_minute_runs GROUP BY video_session_id, run_start, run_end HAVING s > 0)")"
 if [ "$closure" != "0" ] || [ "$dupes" != "1" ]; then
-  echo "$(date -u +%FT%TZ) $DB TICK FAILED invariants: closure=$closure dupes=$dupes (window $from_ts -> $max_ts)" >>"$LOG"
+  echo "$(date -u +%FT%TZ) $DB TICK FAILED invariants after retry: closure=$closure dupes=$dupes (window $from_ts -> $max_ts)" >>"$LOG"
   exit 1
 fi
 
