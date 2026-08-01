@@ -3,7 +3,7 @@
 import type {DimensionValue, ClientFilters} from '@/lib/types'
 import styles from './FilterRail.module.css'
 
-export type RangeOption = '3' | '24' | 'all'
+export type RangeOption = '3' | '24' | 'all' | 'custom'
 export type RefreshOption = 0 | 5000 | 10000 | 30000 | 60000 | 300000
 
 interface Props {
@@ -12,6 +12,15 @@ interface Props {
   onFiltersChange: (next: ClientFilters) => void
   range: RangeOption
   onRangeChange: (r: RangeOption) => void
+  /** datetime-local input values ("YYYY-MM-DDTHH:mm"), UTC, only read when range === 'custom'. */
+  customFrom: string
+  onCustomFromChange: (v: string) => void
+  customTo: string
+  onCustomToChange: (v: string) => void
+  /** Latest validated minute the frozen corpus covers, same datetime-local shape. No longer used
+   *  to clamp the pickers (any date is selectable) — only shown as an explanatory hint, since every
+   *  range option (relative or custom) still resolves against this same watermark server-side. */
+  boundsMax?: string
   refreshMs: RefreshOption
   onRefreshChange: (ms: RefreshOption) => void
   /** Timestamp (Date.now()) of the last refresh tick, keys the countdown bar so it restarts
@@ -32,6 +41,11 @@ export default function FilterRail({
                                      onFiltersChange,
                                      range,
                                      onRangeChange,
+                                     customFrom,
+                                     onCustomFromChange,
+                                     customTo,
+                                     onCustomToChange,
+                                     boundsMax,
                                      refreshMs,
                                      onRefreshChange,
                                      lastTickAt,
@@ -39,7 +53,7 @@ export default function FilterRail({
   const valuesFor = (dim: string) => dims.filter((d) => d.dim === dim).map((d) => d.value)
 
   return (
-    <aside className={`${styles.rail} corner-ticks`}>
+    <aside className={styles.rail}>
       <div className={styles.section}>
         <span className={styles.sectionTitle}>Dimensions</span>
         {DIM_FIELDS.map(({key, label}) => (
@@ -92,7 +106,43 @@ export default function FilterRail({
           <option value="24">last 24h of data</option>
           <option value="3">last 3h of data</option>
           <option value="all">everything ingested</option>
+          <option value="custom">custom range</option>
         </select>
+
+        {/* Every option above — relative or custom — ends at the same frozen watermark, not at
+            "now": the corpus is isolated at ingest, so "last 3h" means the 3h ending at the latest
+            validated minute, wherever that lands, rather than the wall clock. Shown for every
+            range (not just custom) since the anchor is invisible on the relative options otherwise. */}
+        {boundsMax && (
+          <p className={styles.boundsHint}>
+            Data is frozen at ingest — every range ends {boundsMax.replace('T', ' ')} UTC, the latest validated minute.
+          </p>
+        )}
+
+        {range === 'custom' && (
+          <>
+            <label className="mono-label" htmlFor="from_ts">
+              From (UTC)
+            </label>
+            <input
+              id="from_ts"
+              type="datetime-local"
+              className={styles.select}
+              value={customFrom}
+              onChange={(e) => onCustomFromChange(e.target.value)}
+            />
+            <label className="mono-label" htmlFor="to_ts">
+              To (UTC)
+            </label>
+            <input
+              id="to_ts"
+              type="datetime-local"
+              className={styles.select}
+              value={customTo}
+              onChange={(e) => onCustomToChange(e.target.value)}
+            />
+          </>
+        )}
 
         <label className="mono-label" htmlFor="refresh">
           Auto refresh
