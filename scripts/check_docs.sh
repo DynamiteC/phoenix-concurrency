@@ -91,4 +91,49 @@ fi
 # kind of property, but run from here so there is a single command to remember.
 ./scripts/check_query_sources.sh || fail=1
 
+# Does the server still match sql/schema/? This is the only check here that needs the network,
+# and it earns the ten seconds: phoenix was found carrying an index that no file in the repo
+# created, and rebuild_swap.sh builds its shadow from these files and then EXCHANGEs it into
+# production, so the next rebuild would have deleted that index with every existing gate still
+# green. Drift is invisible precisely until it destroys something.
+#
+# SKIP_DRIFT=1 for an offline run. phoenix carries a deliberate generation gap and passes with
+# an allowlist; phoenix_next is what sql/schema/ actually describes and must be clean.
+if [ "${SKIP_DRIFT:-0}" = "1" ]; then
+  echo "skipped: schema drift (SKIP_DRIFT=1)"
+else
+  # FOUR undeclared changes landed in phoenix during a single session, each caught by
+  # schema_drift.sh within minutes of that check existing. They are allowlisted so the gate is
+  # not red for everyone, and they are OPEN in docs/STATUS.md rather than resolved: adopting
+  # somebody else's undiscussed production DDL into sql/schema/ is their decision, not this
+  # script's. They are not all the same kind of thing.
+  #
+  #   idx_run_range          on session_minute_runs, 16:57. Now DECLARED in sql/schema/ and so
+  #                          not allowlisted: rebuild_swap.sh would have deleted it from
+  #                          production on the next run with every existing gate still green.
+  #
+  #   concurrency_deltas_naive  18:10, recreated by scripts/naive_baseline.sh, a committed
+  #                          script. Reproducible and understood, merely undeclared. The mild
+  #                          version of the problem.
+  #
+  #   concurrency_boundary_deltas  18:02, hand-made. NO LONGER ALLOWLISTED: it is declared in
+  #                          sql/schema/06_exact_concurrency.sql as of D14, so the drift half is
+  #                          closed and an allowlist entry would now hide real future drift on
+  #                          it. The other half is still open and is not a drift problem: it is
+  #                          in neither derive guard list, so a REBUILD=1 derive fires its MV a
+  #                          second time and appends a duplicate set to a table nothing resets.
+  #
+  #   event_id               ALTERed onto raw_events, raw_events_landing and raw_events_mv,
+  #                          18:20. Does NOT repeat the ingested_at defect: no DEFAULT
+  #                          expression, so existing parts read a deterministic empty string
+  #                          rather than a read-time value. It is simply empty everywhere,
+  #                          including rows ingested after the ALTER: a column ahead of its
+  #                          producer.
+  DRIFT_QUIET=1 \
+  DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv,concurrency_deltas_naive,event_id' \
+    ./scripts/schema_drift.sh phoenix      2>&1 | grep -v 'Unknown settings' || fail=1
+  DRIFT_QUIET=1 INSIGHTS=1 \
+    ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1
+fi
+
 exit "$fail"

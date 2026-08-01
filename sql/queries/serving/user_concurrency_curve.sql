@@ -152,6 +152,12 @@ ORDER BY minute ASC
 -- column of the ORDER BY and the range predicate always engages it. It proves the key is
 -- used at all; it does not prove the DIMENSION filter pruned. The granule counts in
 -- docs/problem/DESIGN.md are what show that, and they show it only for platform.
+-- max_execution_time is a wall-clock ceiling, and timeout_before_checking_execution_speed = 0 is
+-- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
+-- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
+-- what a query SCANS and says nothing about how long it may run.
 SETTINGS max_rows_to_read = 80712,
          max_bytes_to_read = 1291392,
-         force_primary_key = 1;
+         force_primary_key = 1,
+         max_execution_time = 30,
+         timeout_before_checking_execution_speed = 0;

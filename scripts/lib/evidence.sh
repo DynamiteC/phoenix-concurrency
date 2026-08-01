@@ -28,7 +28,12 @@ _ev_data_stamp() {
 "; printf '%s' "$_EV_DATA_STAMP"; return; }
 
   local row
-  row="$(CH_DATABASE=phoenix ./scripts/ch.sh --format TSVRaw --query "
+  # Stamp the database the run actually measured, not a hardcoded one. An artifact produced
+  # against phoenix_next that reports phoenix's row count and watermark is worse than an
+  # unstamped one: it is a stamp that says the wrong thing with full confidence.
+  # EVIDENCE_STAMP_DB pins it explicitly when a script spans two databases and the stamp
+  # should name the source rather than whichever database the last call happened to set.
+  row="$(CH_DATABASE="${EVIDENCE_STAMP_DB:-${CH_DATABASE:-phoenix}}" ./scripts/ch.sh --format TSVRaw --query "
     SELECT count(),
            toString(max(event_timestamp)),
            toString(max(ingested_at)),

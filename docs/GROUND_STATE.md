@@ -186,11 +186,14 @@ fail the gate for the single reason that proves it is working.
 | `rows.foreground_intervals` | 599,137 |
 | `runs.session_minute_runs.asserted` | 17,604 |
 | `runs.user_minute_runs.asserted` | 16,600 |
-| `serving.peak_concurrency` | **2,829** at 2026-07-26 10:56:00 |
-| `serving.user_peak_concurrency` | **2,749** at 2026-07-26 10:56:00 |
-| `serving.minutes_with_audience` | **3,664** |
-| `serving.avg_all_minutes` | **7.88** (denominator 17,029 minutes, zeros included) |
-| `serving.avg_active_minutes` | **36.63** (denominator 3,664 minutes) |
+| `serving.peak_concurrency` | **2,828** at 2026-07-26 10:56:00 |
+| `serving.user_peak_concurrency` | **2,748** at 2026-07-26 10:56:00 |
+| `serving.minutes_with_audience` | **3,663** |
+<!-- These serving.* rows are CORPUS-WIDE, over the 17,029 minutes from the first delta to the
+     last, and not the single headline day. The day figures are different and both are correct:
+     88.06 over 1,440 minutes and 200.00 over 634. Confusing the two is easy and was done once. -->
+| `serving.avg_all_minutes` | **7.87** (denominator 17,029 minutes, zeros included) |
+| `serving.avg_active_minutes` | **36.59** (denominator 3,663 minutes) |
 
 ### Invariants, all at their required value
 
