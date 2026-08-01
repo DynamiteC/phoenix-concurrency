@@ -1,332 +1,367 @@
-# TASK: Ship the concurrency model — tables, materialized views, and the query set
+# TASK v2: Close out the concurrency solution
 
 **Repo:** phoenix-concurrency · **Branch:** feature/evidence-and-live-demo
 **Owner of this task:** you (Claude Code) · **Deadline:** Click-a-thon submission, Aug 2
-**Status:** we are behind on the core deliverable. Everything in this file is scoped to
-closing that gap and making the solution legible to the whole team in the GitHub repo.
+**Supersedes:** TASK.md v1. Read that file for background only. Where the two disagree,
+this file wins.
+
+**Current verdict from independent review: REWORK REQUIRED.** 35 PASS, 4 PARTIAL, 7 FAIL,
+1 finding, 1 absent across 48 checks. The verdict is driven by the missing external
+integration, which is a binary requirement, plus a shipped wrong answer in the demo path
+and an unresolved interval-truncation defect.
+
+**Note on style:** this file avoids em-dashes because `check_docs.sh` bans them in
+team-authored files. Keep it that way in anything you write. Organiser-supplied documents
+under `docs/problem/` stay excluded from the checker; do not rewrite someone else's
+document to satisfy our linter.
 
 ---
 
-## 0. OPERATING RULES — read twice, they override everything below
+## 0. OPERATING RULES
 
-You have hallucinated on this project already. This is not a hypothetical risk being
-guarded against; it is a measured failure with a paper trail:
-
-- Three of four published headline numbers were wrong and sat in the repo for a day
-  (peak corrected 3,323 → actual 2,829; overcount 12.6% → actual 32.3%; phantom minutes
-  1,272 → actual 1,592).
-- Schema was inferred from repo SQL files that had drifted from the live server, and every
-  scratch proof died on `NUMBER_OF_COLUMNS_DOESNT_MATCH`.
-- A freshness key was adopted on the assumption that `ingested_at` held a stored value.
-  It does not, for the rows that matter, and the resulting filter would have silently
-  inverted the dataset.
-
-Each of those was a confident statement that nobody had checked. So:
+These carry over from v1 unchanged in force, with three additions at the end. Read them
+before anything else.
 
 ### 0.1 The verification rule
-**No factual claim enters a commit, a doc, a comment, or a report unless you ran a command
-this session that produced it.** Not "I know ClickHouse does X." Not "the schema is Y."
+No factual claim enters a commit, a doc, a comment, or a report unless you ran a command
+**this session** that produced it. Not "I know ClickHouse does X." Not "the schema is Y."
 Not "this number was Z." Run it, capture it, cite it.
 
-### 0.2 The tag discipline
-Every claim in every document you write carries one of:
-- `[V]` — verified this session. Must cite an evidence artifact path.
-- `[A]` — assumption. Must state what would falsify it and who decides.
-- `[U]` — unverified.
+Every number in this file is context supplied by previous sessions. Treat all of them as
+unverified. Rhackerrank-orchestrate-june26e-measure anything you intend to publish.
 
-`[U]` is forbidden in any committed file. Resolve it to `[V]`, downgrade it to `[A]`, or
-delete the claim. If you find yourself wanting to write `[U]`, that is the signal to run a
-query instead.
+### 0.2 Tag discipline
+Every claim in every document carries one of:
+- `[V]` verified this session, citing an evidence artifact path
+- `[A]` assumption, stating what would falsify it and who decides
+- `[U]` unverified
+
+`[U]` is forbidden in any committed file. Resolve it, downgrade it, or delete the claim.
 
 ### 0.3 The verification ledger
-Maintain `evidence/LEDGER.tsv` with columns:
+`evidence/LEDGER.tsv` stays current:
 `claim_id | claim | command_or_script | artifact_path | status | verified_at_sha | verified_at_utc`
 
-Every `[V]` claim in `docs/` references a `claim_id`. A judge, a teammate, or you-next-week
-must be able to go from any sentence to the command that produced it in one hop.
+A `FAIL` row that records a negative finding and a `FAIL` row that records a broken gate
+are different things. Add a `fail_kind` column with values `broken` or `finding` so the
+next reader does not treat a deliberate red row as rot. Two rows currently need this.
 
 ### 0.4 Banned behaviours
-- Writing SQL against a table whose columns you have not read from `system.columns` **in
-  this session**. Repo SQL files are a hypothesis, not a source of truth.
-- Using a ClickHouse setting, function, or table engine feature you have not confirmed
-  exists on **our** server version via `system.settings`, `system.functions`, or
-  `SELECT version()`. If it is not there, it does not exist for us.
-- Restating any number from this task file, from a previous session, or from memory.
-  Every number in your output is re-measured. This file's numbers are context, not data.
-- Reporting a plan as a result. "I will add X" and "X is added and here is the row count"
-  are different sentences and must not be blurred.
+- Writing SQL against a table whose columns you have not read from `system.columns` in this
+  session. Repo SQL files are a hypothesis, not a source of truth.
+- Using a ClickHouse setting, function, or engine feature you have not confirmed exists on
+  our server via `system.settings`, `system.functions`, or `SELECT version()`.
+- Restating a number from this file, a previous session, or memory.
+- Reporting a plan as a result.
 - Presenting a recommendation as a finding.
-- Continuing past a failed assertion because the failure "looks harmless." You did this
-  correctly once before — you stopped on the fairness gate and escalated. Repeat that.
+- Continuing past a failed assertion because the failure looks harmless.
 
-### 0.5 Use everything available
+### 0.5 New rule: sum-shaped invariants are blind to duplication
+A previous session found that a second derive doubles concurrency from roughly 2,829 to
+roughly 5,658, and that neither the closure check nor the per-session-minute overlap check
+detects it. Closure survives because each duplicated `+1` carries its own `-1`. The overlap
+check survives because the duplicate has an identical key.
+
+**Any invariant that is a sum is structurally incapable of detecting duplication.** Audit
+every gate you rely on and label each as sum-shaped or not. If a gate is sum-shaped, it is
+asleep for this failure mode and something else must cover it. Write the audit into
+`docs/problem/DESIGN.md`.
+
+### 0.6 New rule: absence of a delta does not mean zero
+This is the semantic core of the model and it has already produced one wrong shipped answer
+and one wrong reference value.
+
+A delta table is sparse by design. A minute with no delta row means **concurrency did not
+change during that minute**, so the value carries forward. It does not mean concurrency was
+zero. Any query that builds a minute spine and `LEFT JOIN`s deltas with `coalesce(..., 0)`
+computes a sawtooth that collapses to zero between boundaries, and every aggregate over it
+is wrong.
+
+Peak is immune to this, which is why it survived undetected: peak only occurs at a delta
+boundary. Average is not immune, which is why it was wrong.
+
+Grep the entire repo for this pattern. It is a class of bug, not one bug. Every query that
+reconstructs a per-minute series must carry the running sum forward across gap minutes.
+
+### 0.7 New rule: cross-session corroboration
+Two sessions have now independently reached the same corrected average (roughly 88.2, one
+by fixing the query and one by an ASOF carry-forward reference). Where two independent
+paths agree, say so in the artifact and name both paths. Where they disagree, that
+disagreement is the highest-value thing in the report and goes at the top, not the bottom.
+
+### 0.8 Use everything available
 MCP ClickHouse server for all introspection. `EXPLAIN indexes=1` and `EXPLAIN actions=1`
 for plans. `system.query_log` for what queries actually read. The skills at
 `/mnt/skills/user/database-war-room`, `database-optimizer`, `system-pressure-test`,
-`ship-ready-review`, `debugging-strategies` — read the SKILL.md files before writing SQL,
+`ship-ready-review`, `debugging-strategies`: read the SKILL.md files before writing SQL,
 not after. Fetch ClickHouse docs when a behaviour is in question rather than recalling it.
 Parallelise independent verification queries.
 
 ---
 
-## 1. OWNERSHIP BOUNDARIES
+## 1. WHAT IS ALREADY DONE: DO NOT REDO
 
-**Ingest is owned by a teammate and is currently running. Do not touch it.**
-Do not modify the ingest script, the loader, or the live stream. Do not "fix" the
-event-timestamp behaviour yourself.
+Verify cheaply that each still holds, then move on. Do not rebuild any of this.
 
-What you **do** owe on ingest:
-1. Isolate our work from it so our numbers are stable (§2.3).
-2. File findings as `docs/issues/ingest-<n>.md` — one file per finding, each with the
-   command that demonstrates it and its output. Known open item to document, not fix:
-   the live stream carries August wall-clock event timestamps rather than source event
-   time. Verify whether that is still true before writing it up; do not assume it from
-   this file.
-
-Everything else in this task is yours.
-
----
-
-## 2. PHASE 1 — GROUND STATE (nothing else starts until this is committed)
-
-You cannot build on a picture you have not looked at. Produce
-`docs/GROUND_STATE.md`, every line `[V]` with a ledger reference.
-
-### 2.1 What exists
-- Every table in every `phoenix*` database: engine, full column list with types, ORDER BY,
-  PARTITION BY, row count, part count, on-disk size. From `system.tables`, `system.columns`,
-  `system.parts`. Not from `sql/`.
-- Every materialized view: source table, target table, and the actual SELECT. Confirm each
-  one is running and has not silently failed — `system.query_views_log` for exceptions.
-- `SELECT version()`.
-- The full distinct vocabulary of `event_type` and `event`, with counts. The data
-  dictionary calls its list "current event types," which is an admission that it is not
-  exhaustive.
-
-### 2.2 What is contaminated
-The live August stream shares `phoenix.raw_events` with the validated July corpus.
-Determine — by measurement, per table — whether `foreground_intervals`,
-`session_minute_runs`, `concurrency_deltas`, `user_minute_runs`,
-`user_concurrency_deltas` contain rows derived from August events. Check by minute range,
-by partition, and by `video_session_id` overlap between slices. Report blast radius
-before touching anything.
-
-### 2.3 Isolation
-Adopt the frozen-slice predicate `event_timestamp < '2026-08-01'` for all validated work.
-Do **not** use `ingested_at` for this — verify why yourself in one query before accepting
-it: read `min(ingested_at)`, `max(ingested_at)`, `uniqExact(ingested_at)` over the July
-rows three times a few seconds apart and look at what changes.
-
-Default every validation and benchmark query to the frozen slice. Wire it as a single
-parameter so the unseen day flips it, rather than as a literal scattered through the SQL.
-
-**Gate:** run the validation set twice with live ingest continuing in between. Numbers must
-be byte-identical. That artifact is the deliverable for Phase 1. If they are not identical,
-stop and report — do not proceed to Phase 2 on unstable ground.
+- Ground state, contamination check, and frozen-slice isolation on
+  `event_timestamp < '2026-08-01'`.
+- Oracle parity: reported 4 of 4 at 0 diffs once the frozen-slice predicate was added to the
+  benchmark queries. Before that fix the oracle was being compared against a serving layer
+  containing August rows.
+- Corrected headline numbers and `docs/corrections.md`.
+- The naive-vs-corrected fairness gate.
+- The average bug is diagnosed and a corrected query exists in `sql/queries/serving/`.
+- `derive.sh` refuses a second derive.
+- 48-check validation runbook, answered and committed under `docs/review/`.
+- Expected values reproduced exactly by an independent reviewer: the corpus counts, the
+  duplicate counts, the multi-end session counts, session peak and its minute, and the
+  user-level peak with its difference from the session peak.
 
 ---
 
-## 3. PHASE 2 — TABLES AND MATERIALIZED VIEWS (primary deliverable)
+## 2. P0: BLOCKERS. Nothing below section 3 starts until these are closed.
 
-Deliver the final, documented, reproducible table set. Every DDL statement lives in a
-versioned file under `sql/` and is applied by script. **Zero ad-hoc DDL against any
-database, for any reason.** That rule is what would have prevented the mid-run ALTER that
-cost us a day.
+### 2.1 External integration. Unstarted. This is the only requirement that can zero us.
+The problem statement requires meaningfully integrating at least one of ClickStack,
+Langfuse, or LibreChat, and states that superficial inclusion will not count. It has now
+been deferred across three consecutive sessions and is FAIL on the review.
 
-### 3.1 Structural fix: one database per dataset generation
-```
-phoenix          validated July corpus, frozen, read-mostly
-phoenix_live     the teammate's live stream
-phoenix_unseen   the sealed day, when it drops
-phoenix_scratch_<task>   throwaway, dropped when done
-```
-Same DDL files applied to each; `load.sh` takes the target database as a parameter. This
-replaces the social rule "announce your DDL," which has now failed twice. It also makes
-the unseen-day drop `./load.sh <file> phoenix_unseen` instead of an improvised pipeline at
-hour 22.
+Build ClickStack over the structured TSV the pipeline already emits. It is the shortest
+path and it is not superficial: the read budgets and ingest-lag numbers it would display
+are the judges' own stated criteria, so the integration surfaces the thing we are graded on
+rather than sitting beside it.
 
-### 3.2 Idempotent derivation — fix this properly
-The current batch derive asserts `sign=+1` unconditionally and appends. A second pass
-appends duplicate runs that SummingMergeTree absorbs silently, with no undo. That is a
-loaded gun pointed at the unseen day.
+Minimum viable, in this order, each independently demoable so a partial finish still counts:
+1. `docker/clickstack/compose.yml` using the all-in-one image. Verify the current image
+   name and ports from the ClickHouse docs before writing the file; the image was renamed
+   and older blog posts carry a stale path.
+2. Register our ClickHouse as a HyperDX source and build the live dashboard on the delta
+   table: minute-grain concurrency curve, platform and country filter, watermark-lag single
+   stat. Panels must use `sum(delta)` with a running total. Do not use `FINAL`. Document
+   panel definitions in `docs/clickstack.md` so it is reproducible on a fresh laptop.
+3. Ship per-query spans carrying `read_rows`, `read_bytes`, and `elapsed_ms`, joined by
+   `query_id` from `system.query_log`.
 
-Replace with derive-to-shadow-and-swap: build into `<table>_next` in the same database,
-verify row count and the closure property `sum(delta) = 0`, then `EXCHANGE TABLES ... AND`
-atomically. Reruns become safe by construction rather than by discipline. Keep the
-incremental arrival path (retraction rows into the live table) as it is — the swap pattern
-is for full rebuilds only.
+Layer 2 is the one that makes the integration load-bearing. If time collapses, sacrifice
+layer 3, never layer 2.
 
-### 3.3 Vocabulary classifier that survives an unseen day
-- Unknown `event_type`/`event` values default to **INACTIVE**, never active. Overcounting
-  backgrounded time is the exact failure mode the problem exists to prevent, so the
-  conservative default is the correct one.
-- Emit an `UNKNOWN_VOCABULARY` report on every load: any value not in the classifier, with
-  counts. On the unseen day this runs first and tells us in seconds whether a decision is
-  needed. Build it now, not at hour 22.
+### 2.2 The demo serves the wrong queries
+The corrected average lives in `sql/queries/serving/`, but `demo/server.js` around lines
+22 to 23 still loads the copies under `benchmark/`. The demo is what judges watch. It is
+currently displaying a known-wrong number.
 
-### 3.4 Preserve the boundary rule exactly
-Verify against the committed SQL, then keep:
-- `interval_start` inclusive, `interval_end` exclusive
-- `interval_end = least(if(next_ts > ts, next_ts, ts + tol), ts + tol)` — the 90s gap
-  tolerance **does** extend the tail
-- `minutes = timeSlots(interval_start, greatest(dateDiff('second', interval_start,
-  interval_end) - 1, 0), 60)`
-- `run_end` inclusive; deltas `+1` at `run_start`, `-1` at `run_end + 1 minute`
+Fix by making one directory the single source of truth for query text. The demo, the
+benchmark harness, and the submission all load from it. Delete or symlink the duplicates.
+Then add a test that fails if any two copies of a query diverge, because this will recur
+otherwise.
 
-Do not "improve" this. It is validated. If you believe it is wrong, stop and escalate.
+### 2.3 Intervals extend past session end
+Reported: 385 intervals extend past a session's last `VideoSessionEnd`, across 21 sessions,
+336 of them beyond the gap tolerance. Root cause is the 14 sessions carrying multiple
+`VideoSessionEnd` events. The ceiling on peak is stated as 2 sessions, so peak is safe
+within that bound, but **the effect on the average is unmeasured**.
 
-### 3.5 Document the table set for the team
-`docs/DATA_MODEL.md`: one section per table — what it holds, what writes it, what reads
-it, why the ORDER BY is what it is, and what it costs. Include a dataflow diagram in
-Mermaid. A teammate who has not been in these sessions must be able to read this file and
-understand the whole pipeline without asking anyone.
+This is a foreground-only correctness defect: a session that has ended cannot accrue
+foreground time.
 
----
+Measure the average impact first. Then apply this rule unless you can show it is wrong:
 
-## 4. PHASE 3 — THE QUERY SET (primary deliverable)
+> `VideoSessionEnd` closes the current interval at its own timestamp. The gap tolerance
+> never extends an interval past a `VideoSessionEnd`. Active events arriving after an end
+> open a **new** interval rather than reviving the closed one. No interval may extend past
+> the session's last end event.
 
-`sql/queries/serving/` — the queries that answer the five questions in
-PROBLEM_STATEMENT.md. Each is parameterised, committed, and has a measured result.
-Remember `content_id` is Int64: a String query parameter needs `toInt64({content_id:String})`.
+That rule handles duplicate ends and genuine resumption with the same mechanism, and it
+preserves foreground-only semantics. If you believe a different rule is correct, stop and
+escalate with the measured impact of each option. Do not choose silently.
 
-### 4.1 The seeding trap — check this first, I expect at least one existing query has it
-To answer peak/average over `[t1, t2]`, the running sum **must be seeded by every delta
-before t1**. Filtering deltas to the range and cumulative-summing inside it produces a
-curve that starts at zero and is wrong for every range not beginning at the start of data.
+Record the outcome in the decisions register (section 5.1), re-run parity, and re-measure
+peak, average, and phantom minutes afterwards.
 
-Audit every existing benchmark query for this bug and report what you find. Then implement
-correctly: read deltas `WHERE minute < t2` for the filter tuple, cumulative sum over
-minute, restrict output rows to `>= t1`. Measure what that reads.
-
-If the seed scan proves expensive, **measure whether sessions actually cross day
-boundaries before building a checkpoint table.** A per-dimension-tuple baseline table
-explodes combinatorially and may cost more than the scan it replaces.
-
-### 4.2 Peak is not a rollup
-Platform and platform+country peak at different minutes within the same range. Peak and
-average are computed at query time from the per-minute series for the specific filter
-requested, never pre-stored per rollup level. Write a test that would catch a regression
-here: construct a filter pair where the peak minutes differ and assert they differ.
-
-### 4.3 The average denominator is ambiguous and the ground truth is private
-Average over all minutes in the range including zero-concurrency minutes, versus average
-over non-zero minutes only, give materially different answers. Compute **both**. Ship
-all-minutes-including-zeros as primary — it is the defensible definition of average
-concurrency over a range — and report both in the submission with one line explaining the
-choice. Cheap insurance against a definition mismatch we cannot see.
-
-### 4.4 Filter-friendliness — measure, do not assert
-`content_id` sits fourth in the ORDER BY, so a content-only filter cannot use the key
-prefix. Judges look at what queries read, not just at latency.
-
-For every benchmark filter shape — platform only, country only, content only,
-platform+country, content+platform, video_type, unfiltered — capture `EXPLAIN indexes=1`
-plus `read_rows`, `read_bytes`, `selected_marks`, `selected_parts` from
-`system.query_log`. Put the table in `docs/problem/DESIGN.md`. **That table is a scoring
-asset in its own right** — it is direct evidence for the criterion the judges named.
-
-Only if content-only measures badly, choose between (a) a PROJECTION with content-leading
-ORDER BY, or (b) a second MV-maintained deltas table with content-leading ORDER BY. Prefer
-(b) unless (a) measures clearly better: projections on SummingMergeTree need
-`optimize_use_projections` confirmed on our version, and there is a known interaction where
-lazy materialization plus projections raises `AMBIGUOUS_COLUMN_NAME` (ClickHouse issue
-#80201). A second table has no such surprise and its cost is legible. **Do not reorder the
-existing key.**
-
-### 4.5 Open sessions and late arrivals
-The incremental path works. What is missing is the demo-facing proof. Produce one artifact
-showing: curve at T → events arrive → curve at T+1 → the diff explained by exactly the
-sessions that received events. That artifact is the answer to the "update handling"
-criterion, which is graded.
-
-### 4.6 Read budgets as assertions
-Wrap each benchmark query with `max_bytes_to_read` / `max_rows_to_read` set slightly above
-its measured read, and `force_primary_key = 1` where we claim key usage. The query then
-**fails** if a schema change, a merge, or the unseen day's shape makes it read more than we
-claim. "What your queries read" becomes machine-checked instead of asserted. A budget
-breach on the unseen day is information we want loudly, not silently.
-
-### 4.7 Benchmark hygiene
-Query cache is banned from submission numbers. Do not use `use_query_cache` to produce
-latencies. Report cold and warm separately and label every number. A judge who finds a
-cached benchmark discards the whole submission.
+### 2.4 Carry-forward audit
+Per rule 0.6, sweep the repo for spine-join-coalesce-to-zero. Fix every instance. The
+reference query used to validate the average had this bug, which means our own validation
+scaffolding is affected, not only the serving queries.
 
 ---
 
-## 5. PHASE 4 — THE TEAM-FACING PICTURE
+## 3. P1: CORRECTNESS AND DEFENSIBILITY
 
-The repo must show a working solution to a reader who was not in these sessions.
+### 3.1 Ship both average definitions
+One number is currently shipped. The task file has asked twice for two, and the reason
+stands: the ground truth is private and the denominator is a definition choice we cannot
+see.
 
-- `docs/STATUS.md` — what is done, what is in flight, what is not started, who owns each.
-  Dated. This is the file a teammate opens first.
-- `docs/DATA_MODEL.md` — §3.5.
-- `docs/problem/DESIGN.md` — the decision log. Every design choice with its trade-off and
-  its measured cost. This is what "design quality" is graded on.
-- `docs/RUNBOOK_UNSEEN_DAY.md` — the exact command sequence for the sealed drop: load,
-  vocabulary check, derive, verify, run benchmark set, capture evidence. Numbered steps,
-  no prose, no decisions left open. Rehearse it against `phoenix_scratch_rehearsal` and
-  record how long it took. A runbook that has never been run is a wish.
-- `docs/corrections.md` — the before/after table of the wrong headline numbers, the
-  artifact that caught each, the commit that fixed it. **Keep this.** It is the only way a
-  judge can distinguish a team that validated from a team that got lucky. Do not delete
-  corrective prose elsewhere in the repo to make a grep come back clean; the audit trail is
-  the point.
-- `README.md` updated to link all of the above.
+Ship all three candidates measured, one labelled primary:
+- all minutes in the requested range, with concurrency carried forward across gap minutes
+- minutes with non-zero concurrency only
+- minutes from the first observed event to the range end
+
+Primary is the first. State the choice in one line in the submission. This is cheap
+insurance against a definition mismatch that would otherwise cost the correctness score
+outright.
+
+Also reconstruct the two wrong values exactly from their implied denominators. If you cannot
+show precisely which minute set each was averaging over, the bug is not fully understood and
+it will recur in a filter shape nobody tested.
+
+### 3.2 Idempotent derivation. A refusal is not idempotence.
+`derive.sh` refusing a second run is the correct immediate guard and should stay. It is not
+the deliverable, and the Definition of Done box is still open.
+
+On the unseen day we will plausibly need to re-derive after a bad vocabulary call or a
+tolerance bug found late. Today the recovery path is a manual truncate plus re-derive under
+time pressure, which is exactly the condition that reintroduces the doubling by hand.
+
+Implement derive-to-shadow-and-swap: build into `<table>_next` in the same database, verify
+row count and closure, then `EXCHANGE TABLES ... AND` atomically. Prove idempotence by
+running the full rebuild twice and diffing. Keep the refusal on the live path as a second
+layer.
+
+### 3.3 The seeding test is probably confounded
+A previous session reported the seeding trap absent, on the evidence that a 1-hour window
+and a whole-corpus window read identical rows.
+
+That is only evidence if the two windows had **different upper bounds**. If the 1-hour
+window was at the end of the corpus, both queries share the same `t2`, both legitimately
+read everything before it, and identical reads is a tautology.
+
+Re-run with a 1-hour window at the **start** of the corpus, around 2026-07-14 16:00, against
+the whole corpus. Report `read_rows` for start-window, end-window, and whole-corpus as three
+rows.
+
+Also fix the framing. "Nothing prunes, therefore correct" is not a pass; it means every query
+pays worst case unconditionally, and what the queries read is a named judging criterion. The
+property to demonstrate is: **read volume scales with the position of the range end in the
+corpus, and never with the width of the window.** State whether that holds.
+
+### 3.4 Lateness boundary
+Reported FAIL: no defined lateness policy. Define one, enforce it, document it.
+
+- How late may an event arrive and still be absorbed incrementally?
+- What happens to an event arriving after that boundary: dropped, counted with a warning, or
+  triggering a targeted re-derive of the affected sessions?
+- How is the boundary measured, and what does the pipeline emit when it is crossed?
+
+The problem statement grades update handling explicitly. An undefined boundary is an
+undefined answer to a graded question.
+
+### 3.5 Remaining review failures
+Close or explicitly defer with a reason, each recorded in `docs/STATUS.md`:
+- `title` and `category` dimensions from the content dataset
+- TTL policy on the detail and delta tables
+- read budgets on every benchmark query, per v1 section 4.6
+- the two unresolved ledger rows, via the `fail_kind` column in rule 0.3
+
+### 3.6 Frozen gate under concurrent writes
+The gate is `PASS_BUT_INGEST_IDLE`: 33 metrics, 0 differing lines, but 0 rows arrived
+because the replay loop had stopped. A run with no concurrent writes cannot demonstrate
+stability under concurrent writes.
+
+This needs the ingest owner to restart the loop, then `./scripts/frozen_gate.sh 120`. No
+code change. **Flag it in your first message so the human can unblock it in parallel rather
+than discovering it in your final report.**
 
 ---
 
-## 6. LOWER PRIORITY — only after Phases 1–4 are committed
+## 4. P2: ONLY IF P0 AND P1 ARE CLOSED
 
-- Settings review against `https://clickhouse.com/docs/reference/settings/index` and
-  `https://clickhouse.com/docs/reference/settings/server-settings/settings`. We are on
-  ClickHouse Cloud, where most server-level settings are not user-modifiable — verify
-  against `system.server_settings` before proposing anything from the second page. Focus on
-  query-level and MergeTree table settings, which we control. Every setting we ship needs a
-  measured before/after in `evidence/`. No cargo-culting settings to look tuned.
-- Lazy materialization: `query_plan_optimize_lazy_materialization` (25.4+), applied
-  automatically only up to the LIMIT threshold in
-  `query_plan_max_limit_for_lazy_materialization` (default 10). Confirm both exist in
-  `system.settings` on our version first. My prior is it does nothing for our benchmark set,
-  because those are aggregations over a narrow LowCardinality delta table and aggregation
-  reads every column it needs. Prove or disprove with `EXPLAIN actions = 1` — look for a
-  `LazilyRead` operator in the plan; note it is also known not to appear on
-  Distributed/cluster() paths. Test it where it plausibly helps instead: interval-detail or
-  top-N-session queries returning wide rows with ORDER BY ... LIMIT. **Write the result into
-  DESIGN.md either way.** "We tested it, it does not apply to our access pattern, here is the
-  plan output" is a stronger answer than silence and far stronger than switching it on and
-  implying credit.
-- ClickStack / Langfuse / LibreChat integration (hard requirement, unstarted). Not this
-  session, but do not design the telemetry surface so it needs retrofitting: the read
-  budgets from §4.6 and the ingest-lag numbers are exactly what ClickStack would display.
-  Emit them as structured output now so integration is wiring, not a rewrite.
+### 4.1 Key order at realistic volume
+The key-order experiment is currently uninformative rather than negative. At roughly 25K
+delta rows the table is a few granules, so every candidate key prunes identically because
+there is nothing to prune. The 36 percent disk difference for the rule-compliant key **is**
+informative, because compression from ordering scales while pruning at three granules does
+not. Report it that way.
+
+The cheap unlock: you do not need 100x raw events, only 100x **delta rows**, and those can
+be synthesized directly by fanning dimension tuples over the existing minute series. No
+re-derive, no ingest, minutes of work. That converts "all keys prune identically" into a
+real curve and turns the "how does this behave at 100x" question, which judges are told to
+ask, from a paragraph into a measurement.
+
+### 4.2 Settings and lazy materialization
+Per v1 section 6, unchanged. We are on ClickHouse Cloud, so verify against
+`system.server_settings` before proposing anything server-level. Every setting we ship needs
+a measured before-and-after in `evidence/`. Write the lazy materialization result into
+DESIGN.md either way; a measured negative is a stronger answer than silence.
 
 ---
 
-## 7. DEFINITION OF DONE
+## 5. DOCUMENTATION AND PROCESS
 
-- [ ] `docs/GROUND_STATE.md` committed, every claim `[V]` with a ledger reference
-- [ ] Validation set produces byte-identical numbers across two runs with live ingest in between
-- [ ] All DDL in versioned `sql/` files; zero ad-hoc DDL executed this session
-- [ ] Full rebuild is idempotent and proven so by running it twice and diffing
-- [ ] Every one of the five problem-statement questions has committed, parameterised,
-      measured SQL behind it
-- [ ] Filter-shape read table in DESIGN.md with `EXPLAIN` and `query_log` figures
+### 5.1 New: decisions register
+Create `docs/DECISIONS.md`. One row per modelling decision: the question, the options with
+their costs, the choice, who decided, the date, and the artifact that measured the impact.
+
+The reason this file needs to exist: multiple sessions have independently re-derived the
+same ambiguities (ad handling, average denominator, tolerance tail, multi-end sessions) and
+some were re-decided differently. A judge asking "why this and not that" needs one file, and
+so does the next session.
+
+Backfill it with every decision already made, including the ones recorded only in
+`docs/assumptions.md`.
+
+### 5.2 Keep current
+- `docs/STATUS.md`, dated, accurate as of your final commit, with an owner against every open
+  item. This is the file a teammate opens first.
+- `docs/DATA_MODEL.md`, `docs/problem/DESIGN.md`, `docs/RUNBOOK_UNSEEN_DAY.md`,
+  `docs/corrections.md`, `README.md` linking all of them.
+
+### 5.3 Add to corrections.md
+Two self-caught errors belong there alongside the headline numbers:
+- the claim that `max_runs_per_session_minute` detected the duplicate derive, published and
+  then corrected when the query was actually run
+- the reference average that scored gap minutes as zero, caught by an independent
+  carry-forward reference
+
+These are not embarrassments to bury. Judges scoring design quality have no way to
+distinguish a team that validated from a team that got lucky, because both arrive with green
+checkmarks. A team that arrives with green checkmarks **and** a written record of invariants
+that failed and how they were caught is making a claim the lucky team cannot fake.
+
+### 5.4 Push
+Two commits are reported as unpushed on `feature/evidence-and-live-demo`. Push them. The
+repo is the team's shared picture and it is currently stale.
+
+---
+
+## 6. DEFINITION OF DONE
+
+Carried from v1 with status. Do not tick a box you have not re-verified this session.
+
+- [x] `docs/GROUND_STATE.md` committed with ledger references
+- [x] All DDL in versioned `sql/` files
+- [x] Oracle parity at 0 diffs on the frozen slice
+- [ ] Validation set byte-identical across two runs **with live ingest running between them**
+      (blocked on ingest owner, section 3.6)
+- [ ] Full rebuild idempotent, proven by running twice and diffing (section 3.2)
+- [ ] External integration present and demoable (section 2.1)
+- [ ] Demo, benchmark, and submission all load query text from one source (section 2.2)
+- [ ] No interval extends past its session's last end event (section 2.3)
+- [ ] No spine-join-coalesce-to-zero anywhere in the repo (section 2.4)
+- [ ] All three average definitions measured, primary labelled (section 3.1)
+- [ ] Seeding test re-run with differing upper bounds, framing corrected (section 3.3)
+- [ ] Lateness boundary defined, enforced, documented (section 3.4)
 - [ ] Read budgets committed on every benchmark query
-- [ ] Unseen-day runbook rehearsed end to end, with a recorded wall-clock duration
-- [ ] `evidence/LEDGER.tsv` complete; no `[U]` anywhere in `docs/`
-- [ ] `docs/STATUS.md` accurate as of your final commit
+- [ ] Unseen-day runbook rehearsed end to end with a recorded duration
+- [ ] `evidence/LEDGER.tsv` complete, `fail_kind` populated, no `[U]` in `docs/`
+- [ ] `docs/DECISIONS.md` backfilled
+- [ ] `docs/STATUS.md` accurate, every open item has a named owner
 
 ---
 
-## 8. REPORT FORMAT
+## 7. REPORT FORMAT
 
-Per phase: what you did · evidence artifact path · commit SHA · **what you could not
+Open your first message with anything that needs a human to unblock it in parallel. Do not
+save blockers for the end.
+
+Per section: what you did · evidence artifact path · commit SHA · **what you could not
 verify** · what you would do next with more time.
 
-Stop and escalate on modelling decisions — present options with the cost of each and let a
-human choose. Do not stop for cleanup decisions; make them and note them.
+Stop and escalate on modelling decisions, presenting options with the cost of each. Do not
+stop for cleanup decisions; make them and note them.
 
-Before every commit, run this check on your own output: *for each factual statement, can I
-name the command that produced it?* If not, delete the statement or go run the command. The
-cost of a deleted sentence is zero. The cost of a wrong one is a day, and we have already
-paid that once.
+Before every commit, run this check on your own output: for each factual statement, can I
+name the command that produced it? If not, delete the statement or go run the command. The
+cost of a deleted sentence is zero. The cost of a wrong one is a day, and we have paid that
+twice.
