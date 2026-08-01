@@ -66,7 +66,7 @@ Each of these is a real gap. None is hidden behind a green checkmark.
 | Item | Why it matters | State | Owner |
 |---|---|---|---|
 | Lateness boundary (TASK 3.4) | Update handling is graded explicitly. An undefined boundary is an undefined answer to a graded question. | **Not done.** The pipeline absorbs late events correctly via retract-and-reassert, proven in `[V:open_sessions]`, but there is no defined limit on how late is too late, and nothing is emitted when one is crossed. | **unassigned, needs naming** |
-| Seeding test re-run with differing upper bounds (TASK 3.3) | The prior pass was a tautology: both windows shared the same upper bound, so identical reads proved nothing. | **Not done.** The property to demonstrate is that read volume scales with the position of the range END, never with the width of the window. | **unassigned** |
+| ~~Seeding test re-run with differing upper bounds (TASK 3.3)~~ | Done, and it **falsified** the property it was written to confirm. See the row below. | **DONE** `[V:seeding_position]` | done |
 | `title` and `category` dimensions from the content dataset (TASK 3.5) | Two filterable dimensions the data supports and the serving layer does not carry. | Not done. Additive: a column on `content`, then on the delta key. | **unassigned** |
 | TTL policy on the detail and delta tables (TASK 3.5) | Unbounded growth. Not urgent at 30K delta rows; a real question at 100x. | Not done. | **unassigned** |
 | Key order at realistic volume (TASK 4.1) | At 4 granules every candidate key prunes identically, so the experiment is uninformative rather than negative. The 36 percent disk difference IS informative and is reported as such. | Not done. Cheap unlock: synthesise 100x **delta** rows by fanning dimension tuples over the existing minute series. No re-derive, no ingest. | **unassigned** |
@@ -85,7 +85,18 @@ Each of these is a real gap. None is hidden behind a green checkmark.
   Content-only reads the whole delta table. Measured, with the decision and its trigger in
   `problem/DESIGN.md` section 7.
 - **The cumulative sum reads the whole series** for the filter tuple and cannot be pruned by a
-  time predicate. 26,904 rows today. At 100x this is what needs day-boundary snapshots.
+  time predicate. 30,662 rows today. At 100x this is what needs day-boundary snapshots.
+  **Now measured rather than asserted, and the measurement falsified the nicer version of the
+  claim** `[V:seeding_position]`. TASK 3.3 proposed demonstrating that read volume scales with the
+  position of the range end and never with the width of the window. It does not: `read_rows` is
+  **identical at 30,662 for all three** of a 1-hour window at the corpus start, a 1-hour window at
+  the corpus end, and the whole 17,028-minute corpus. It scales with neither position nor width.
+  Only `read_bytes` tracks the position of `to_ts`, at 155,416 early against 245,296 late, which is
+  a decompression effect and not pruning. The cause is the deliberate key order: `minute` is last,
+  so a time predicate cannot prune the prefix the cumulative sum needs, and therefore cannot prune
+  granules either. The honest statement is that **read volume scales with the size of the corpus**,
+  and only a dimension filter reduces it (platform prunes to 16,384 of 30,662). That is a real
+  scaling limit rather than a pass, and it is what makes the 100x question a snapshot question.
 - **A backgrounded client that keeps emitting heartbeats is counted** until the 90-second gap
   cap. The tolerance is what makes a missing `AppBackgrounded` safe, and it is the same
   mechanism that makes this case unsafe.
