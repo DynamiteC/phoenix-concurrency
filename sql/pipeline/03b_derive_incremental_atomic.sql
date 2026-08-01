@@ -21,8 +21,20 @@ WITH
     touched AS
     (
         SELECT DISTINCT video_session_id FROM raw_events
-        WHERE event_timestamp >= parseDateTimeBestEffort({from_ts:String})
-          AND event_timestamp <  parseDateTimeBestEffort({to_ts:String})
+        -- INCLUSIVE upper bound. derive_tick.sh passes to_ts = max(event_timestamp), so a
+        -- strict `<` here excludes precisely the newest rows -- the ones the tick exists to
+        -- process. They are only picked up later, by a tick whose max has moved past them, so
+        -- the serving curve lags one tick behind ingest and a batch whose rows all share the
+        -- newest instant is skipped entirely. Measured 2026-08-01: a producer stamping one
+        -- cycle with a single now64(3) put 2,024 rows exactly at the max and the derive built
+        -- 0 intervals from them, leaving a flat zero curve while ingest looked healthy.
+        --
+        -- Safe to widen: the window is used to pick the TOUCHED SESSIONS, and re-touching a
+        -- session is idempotent by construction (the retract zeroes whatever it currently
+        -- asserts before the assert rewrites it from full history). Overlap costs work, never
+        -- correctness -- the same guarantee derive_tick.sh's OVERLAP_S already relies on.
+        WHERE event_timestamp >= parseDateTime64BestEffort({from_ts:String}, 3)
+          AND event_timestamp <= parseDateTime64BestEffort({to_ts:String}, 3)
     ),
     dims AS
     (
