@@ -232,6 +232,47 @@ backwards.
 the predicate a clean cut rather than an approximation, and it is why no rebuild of `phoenix`
 was needed despite 55,293 live rows having propagated into every derived table.
 
+## 9b. Open sessions and late arrivals: absorbed, not recomputed
+
+**Decision.** A session whose active range is still growing is handled by retraction, never by
+mutation. `03_derive_incremental.sql` writes a `sign = -1` row for every previously asserted
+run of a touched session, then re-asserts with `sign = +1`. `CollapsingMergeTree` reconciles
+them, and the materialized view emits the corresponding delta corrections automatically.
+
+**Why not `ALTER TABLE ... UPDATE`.** A mutation rewrites parts. At 100x, a heartbeat arriving
+for a session published an hour ago would trigger a part rewrite per arrival, which is a
+mutation storm rather than an update path.
+
+**The measured before-and-after.** `[V:open_session_update]` Corpus split at 10:45, curve
+published, the next five minutes of events inserted, curve re-published:
+
+| Minute | Concurrency at T | Concurrency at T+1 | Change |
+|---|---:|---:|---:|
+| 10:40 | 1,903 | 1,903 | **+0** |
+| 10:41 | 2,022 | 2,022 | **+0** |
+| 10:42 | 2,158 | 2,158 | **+0** |
+| 10:43 | 2,254 | 2,254 | **+0** |
+| 10:44 | 2,300 | 2,300 | **+0** |
+| 10:45 | 1,945 | 2,358 | +413 |
+| 10:46 | 1,571 | 2,416 | +845 |
+| 10:47 | 0 | 2,483 | +2,483 |
+| 10:48 | 0 | 2,566 | +2,566 |
+| 10:49 | 0 | 2,604 | +2,604 |
+
+Two things to read off it. **Settled history did not move**: every minute before the cutoff is
+unchanged to the row. And the minutes at and after the cutoff rise because sessions that were
+provisionally closed at `last_event + tolerance` turned out to still be watching, so their
+runs were retracted and re-asserted longer.
+
+**The incremental claim, stated as a number.** `[V:open_session_update]`
+`untouched_sessions_disturbed = 0`: of 4,385 sessions in the table, 3,543 received events and
+were re-derived, and **not one of the remaining 842 had a single run retracted**. The answer to
+"incrementally, or by recomputing?" is 3,543 of 4,385, verified rather than asserted.
+
+`[V:open_sessions]` Separately, `./scripts/test_open_sessions.sh 30` rebuilds the same sessions
+through the batch path and diffs the resulting curves: **5,316 minutes, 0 differing rows**. So
+the incremental path is not merely cheap, it lands on exactly the answer a full rebuild would.
+
 ## 10. Behaviour at 100x
 
 `[A]` The parts of this that are measured are labelled; the rest is reasoning from the
