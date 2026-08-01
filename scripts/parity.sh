@@ -23,6 +23,10 @@ CSV="${1:-data/ch-hackathon-raw-data.csv}"
 TOL="${TOLERANCE_S:-90}"
 PI="${PAUSE_INACTIVE:-1}"
 INCR_DB=phoenix_parity_incr
+# Which database the BATCH comparison reads. Parameterised so a shadow rebuild can be proven
+# against the oracle BEFORE it is swapped into place, which is the only order that lets a
+# failure cost nothing.
+BATCH_DB="${BATCH_DB:-phoenix}"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 ch() { ./scripts/ch.sh "$@" 2>/dev/null; }
@@ -61,8 +65,8 @@ served() { CH_DATABASE="$1" ch --format TSV "${FULL[@]}" --queries-file "$2" \
              | awk -F'\t' '$2 > 0 {print $1 "\t" $2}' | sort; }
 
 echo "== 2. batch path: phoenix serving layer vs oracle"
-served phoenix sql/queries/serving/concurrency_curve.sql      > "$TMP/batch_sessions.tsv"
-served phoenix sql/queries/serving/user_concurrency_curve.sql > "$TMP/batch_users.tsv"
+served "$BATCH_DB" sql/queries/serving/concurrency_curve.sql      > "$TMP/batch_sessions.tsv"
+served "$BATCH_DB" sql/queries/serving/user_concurrency_curve.sql > "$TMP/batch_users.tsv"
 
 echo "== 3. incremental path: $INCR_DB, derived only by 03 over the whole span"
 ch --query "DROP DATABASE IF EXISTS $INCR_DB"
