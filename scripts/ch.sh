@@ -10,8 +10,28 @@ set -a; [ -f .env ] && . ./.env; set +a
 [ -n "$_db" ] && CH_DATABASE="$_db"
 : "${CH_HOST:?no CH_HOST: cp .env.example .env and fill it in}"
 
+# The frozen slice, as ONE parameter rather than a literal scattered through the SQL.
+#
+# Live ingest shares phoenix.raw_events with the validated corpus, so every validation and
+# benchmark query has to say which rows it is allowed to see. That predicate is
+# event_timestamp < {frozen_before:String} and NOT ingested_at: ingested_at was added by a
+# later ALTER, ClickHouse does not rewrite existing parts, so for the pre-ALTER rows the
+# DEFAULT now() is evaluated at READ time and the column equals the reading query's wall
+# clock. Filtering on it erases the whole validated corpus and keeps only the live rows,
+# which is the exact inversion of what was wanted. Proven in
+# evidence/ingested_at_nondeterminism__20260801T130349Z__ed4042c-dirty.tsv.
+#
+# On the unseen day this is `FROZEN_BEFORE=<next day> ./scripts/...`, one variable, rather
+# than a grep across the SQL tree at hour 22.
+_frozen=()
+case " $* " in
+  *" --param_frozen_before"*) : ;;                       # caller is explicit, leave it alone
+  *) _frozen=(--param_frozen_before "${FROZEN_BEFORE:-2026-08-01}") ;;
+esac
+
 exec clickhouse client \
   --host "$CH_HOST" --secure --port "${CH_PORT:-9440}" \
   --user "${CH_USER:-default}" --password "${CH_PASSWORD:-}" \
   --database "${CH_DATABASE:-default}" \
+  "${_frozen[@]}" \
   --session_timezone UTC "$@"   # local runs are Asia/Kolkata, the service is UTC: pin both

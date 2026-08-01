@@ -1,0 +1,7 @@
+claim_id	claim	command_or_script	artifact_path	status	verified_at_sha	verified_at_utc
+adpause_impact	oracle with AdPause/AdResume classified vs neutral, tolerance_s=90	measure_divergence.sh	evidence/adpause_impact__20260801T123609Z__c228db4-dirty.tsv	RECORDED	c228db4-dirty	2026-08-01 12:36:09
+ingested_at_nondeterminism	ingested_at is re-evaluated at read time for pre-ALTER parts, so a watermark filter erases the validated dataset	prove_ingested_at.sh	evidence/ingested_at_nondeterminism__20260801T130349Z__ed4042c-dirty.tsv	RECORDED	ed4042c-dirty	2026-08-01 13:03:49
+naive_baseline_gate	range/balance gate before the naive-vs-corrected comparison	naive_baseline.sh	evidence/naive_baseline_gate__20260801T125000Z__1acb1f0-dirty.tsv	FAIL	1acb1f0-dirty	2026-08-01 12:50:00
+naive_vs_foreground	naive session-span vs foreground-only oracle, tolerance_s=90	measure_divergence.sh	evidence/naive_vs_foreground__20260801T123608Z__c228db4-dirty.tsv	RECORDED	c228db4-dirty	2026-08-01 12:36:08
+open_sessions	incremental absorption of open sessions vs one-pass batch truth	test_open_sessions.sh	evidence/open_sessions__20260801T124121Z__c228db4-dirty.tsv	PASS	c228db4-dirty	2026-08-01 12:41:21
+oracle_parity	oracle (clickhouse local, CSV) vs serving layer, batch and incremental	parity.sh	evidence/oracle_parity__20260801T124143Z__c228db4-dirty.tsv	PASS	c228db4-dirty	2026-08-01 12:41:43

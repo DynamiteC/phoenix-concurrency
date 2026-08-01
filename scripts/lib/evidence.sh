@@ -32,7 +32,7 @@ _ev_data_stamp() {
     SELECT count(),
            toString(max(event_timestamp)),
            toString(max(ingested_at)),
-           countIf(toYYYYMMDD(event_timestamp) < 20260801)
+           countIf(event_timestamp < {frozen_before:String})
     FROM raw_events" 2>/dev/null | head -1)" || true
 
   if [ -z "$row" ]; then
@@ -41,7 +41,8 @@ _ev_data_stamp() {
   else
     _EV_DATA_STAMP="# row_count: $(echo "$row" | cut -f1)
 # event_watermark: $(echo "$row" | cut -f2)
-# frozen_slice_rows: $(echo "$row" | cut -f4)   (event_timestamp before 2026-08-01, the validated July replay)
+# frozen_before: ${FROZEN_BEFORE:-2026-08-01}
+# frozen_slice_rows: $(echo "$row" | cut -f4)   (event_timestamp < frozen_before, the validated corpus)
 # ingest_watermark: $(echo "$row" | cut -f3)   (NOT REPRODUCIBLE, see below)
 # ingest_watermark_warning: ingested_at was added by ALTER after the July rows were loaded.
 #   ClickHouse does not rewrite existing parts, so for those 905,558 rows the DEFAULT now()
@@ -52,10 +53,50 @@ _ev_data_stamp() {
   printf '%s' "$_EV_DATA_STAMP"
 }
 
+# The ledger is written from in here, not by each caller, because a traceability index that
+# depends on every script remembering to append a row is an index that goes stale. This way
+# an artifact and its ledger row cannot diverge: there is one code path that produces both.
+#
+# claim_id is the evidence name, which is what docs/ cites. One row per claim_id, replaced
+# in place on re-run: a judge following a [V] tag wants the current artifact in one hop, and
+# superseded rows are still in git history where an audit trail belongs.
+LEDGER="evidence/LEDGER.tsv"
+_ev_ledger() {
+  local claim_id="$1" claim="$2" script="$3" artifact="$4" status="$5" sha="$6" utc="$7"
+  mkdir -p evidence
+  [ -f "$LEDGER" ] || printf 'claim_id\tclaim\tcommand_or_script\tartifact_path\tstatus\tverified_at_sha\tverified_at_utc\n' > "$LEDGER"
+  local tmp="${LEDGER}.tmp.$$"
+  awk -F'\t' -v id="$claim_id" 'NR==1 || $1 != id' "$LEDGER" > "$tmp"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$claim_id" "$claim" "$script" "$artifact" "$status" "$sha" "$utc" >> "$tmp"
+  mv "$tmp" "$LEDGER"
+}
+
+# PASS/FAIL is read back out of the artifact rather than passed in, so the ledger cannot
+# claim a gate passed while the artifact it points at says otherwise.
+#
+# Scripts write a verdict two different ways: as a `verdict`/`gate` ROW (open_sessions), or
+# as a verdict COLUMN with one row per comparison (oracle_parity). So this scans every field
+# of every data line rather than assuming a layout. FAIL wins over PASS: an artifact with
+# three passes and one failure is a failure, and the ledger must not round that up.
+#
+# RECORDED is the honest answer for an artifact that reports measurements and asserts no
+# gate at all (naive_vs_foreground, adpause_impact). It is not a synonym for "unknown".
+_ev_status() {
+  awk -F'\t' '
+    /^#/ { next }
+    { for (i = 1; i <= NF; i++) {
+        if ($i == "FAIL") { fail = 1 }
+        else if ($i == "PASS") { pass = 1 } } }
+    END { print fail ? "FAIL" : (pass ? "PASS" : "RECORDED") }
+  ' "$1" 2>/dev/null
+}
+
 evidence() {
   local name="$1" desc="${2:-}"
-  local ts sha out
+  local ts sha out utc status script
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  utc="$(date -u +'%Y-%m-%d %H:%M:%S')"
   sha="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
   [ -z "$(git status --porcelain 2>/dev/null)" ] || sha="${sha}-dirty"
   out="evidence/${name}__${ts}__${sha}.tsv"
@@ -63,12 +104,17 @@ evidence() {
   {
     echo "# evidence: ${name}"
     [ -n "$desc" ] && echo "# what: ${desc}"
-    echo "# run_utc: $(date -u +'%Y-%m-%d %H:%M:%S')"
+    echo "# run_utc: ${utc}"
     echo "# git: ${sha}"
     echo "# host: $(uname -n)"
     _ev_data_stamp
     cat
   } > "$out"
+
+  status="$(_ev_status "$out")"
+  script="${EV_SCRIPT:-$(basename "${BASH_SOURCE[-1]:-$0}")}"
+  _ev_ledger "$name" "${desc:-$name}" "$script" "$out" "${status:-RECORDED}" "$sha" "$utc"
+
   echo "wrote $out" >&2
   echo "$out"
 }
