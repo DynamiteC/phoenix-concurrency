@@ -1,0 +1,9 @@
+.env
+*.csv
+data/*
+!data/.gitkeep
+node_modules
+__pycache__
+*.log
+dist
+.venv
