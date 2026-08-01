@@ -19,20 +19,38 @@ WITH
     {pause_inactive:UInt8} AS pause_off,
     marked AS
     (
+        -- One row per (session, second). Events routinely share a timestamp: a client
+        -- emits BufferStart / video_forward / dropped-frames in the same millisecond.
+        -- Left un-collapsed, leadInFrame picks an arbitrary tied row, so the next-event
+        -- lookup returns the same timestamp and the segment falls through to the full gap
+        -- cap. Tie order is not stable between engines, which made concurrency
+        -- non-deterministic. min(is_open): a close at an instant beats an open.
         SELECT
             video_session_id,
-            user_id,
-            content_id,
-            platform,
-            country,
-            toDateTime(event_timestamp) AS ts,
-            multiIf(
-                event_type IN ('AppBackgrounded', 'VideoSessionEnd', 'VideoError'), 0,
-                pause_off AND event IN ('pause', 'speed-pause', 'AdPause'), 0,
-                1) AS is_open
-        -- events_src: a view the runner defines. Locally it wraps file() and converts
-        -- epoch millis; in the Cloud service it is just raw_events. Same SQL either way.
-        FROM events_src
+            any(user_id)    AS user_id,
+            any(content_id) AS content_id,
+            any(platform)   AS platform,
+            any(country)    AS country,
+            ts,
+            min(is_open)    AS is_open
+        FROM
+        (
+            SELECT
+                video_session_id,
+                user_id,
+                content_id,
+                platform,
+                country,
+                toDateTime(event_timestamp) AS ts,
+                multiIf(
+                    event_type IN ('AppBackgrounded', 'VideoSessionEnd', 'VideoError'), 0,
+                    pause_off AND event IN ('pause', 'speed-pause', 'AdPause'), 0,
+                    1) AS is_open
+            -- events_src: a view the runner defines. Locally it wraps file() and converts
+            -- epoch millis; in the Cloud service it is just raw_events. Same SQL either way.
+            FROM events_src
+        )
+        GROUP BY video_session_id, ts
     ),
     segments AS
     (

@@ -1,0 +1,74 @@
+-- The serving layer. Three tables, and the only one a dashboard ever reads is the last.
+--
+--   foreground_intervals   one row per active interval inside a session
+--   session_minute_runs    those intervals merged into contiguous minute runs, per session
+--   concurrency_deltas     +1 at run start, -1 after run end, per dimension tuple
+--
+-- Why runs and not intervals: a session pauses and resumes several times inside one minute
+-- (measured: our spot-check session fragments 4 times in 60 seconds). Emitting a delta per
+-- interval would count that session 4 times in that minute. Concurrency asks "was this
+-- session watching during minute M", which is once. Merging to minute runs first makes the
+-- delta model answer exactly that, and keeps cost proportional to boundaries, not watch time.
+
+CREATE TABLE IF NOT EXISTS foreground_intervals
+(
+    video_session_id String,
+    user_id          String,
+    content_id       Int64,
+    platform         LowCardinality(String),
+    country          LowCardinality(String),
+    app_version      LowCardinality(String),
+    video_type       LowCardinality(String),
+    interval_start   DateTime,
+    interval_end     DateTime          -- exclusive
+)
+ENGINE = MergeTree
+ORDER BY (video_session_id, interval_start);
+
+CREATE TABLE IF NOT EXISTS session_minute_runs
+(
+    video_session_id String,
+    user_id          String,
+    content_id       Int64,
+    platform         LowCardinality(String),
+    country          LowCardinality(String),
+    app_version      LowCardinality(String),
+    video_type       LowCardinality(String),
+    run_start        DateTime,         -- first minute the session is active in
+    run_end          DateTime          -- last minute the session is active in, inclusive
+)
+ENGINE = MergeTree
+ORDER BY (video_session_id, run_start);
+
+-- ORDER BY puts dimensions FIRST and minute LAST, inverting the usual reflex on purpose:
+-- a cumulative sum must start at the first minute of the series, never at the start of the
+-- queried range, so a time predicate prunes nothing. A dimension filter is the only thing
+-- that can prune, so the dimensions have to lead the key.
+CREATE TABLE IF NOT EXISTS concurrency_deltas
+(
+    platform    LowCardinality(String),
+    country     LowCardinality(String),
+    video_type  LowCardinality(String),
+    content_id  Int64,
+    app_version LowCardinality(String),
+    minute      DateTime,
+    delta       Int32
+)
+ENGINE = SummingMergeTree(delta)
+ORDER BY (platform, country, video_type, content_id, app_version, minute);
+
+-- Insert-time MV: every run written becomes exactly two rows, +1 when it starts and -1 in
+-- the minute after it ends. Additive, so a late run or a re-derived one is just more rows.
+-- GROUP BY is absent by design: the SummingMergeTree collapses on its ORDER BY, which the
+-- SELECT matches column for column.
+CREATE MATERIALIZED VIEW IF NOT EXISTS concurrency_deltas_mv TO concurrency_deltas AS
+SELECT
+    platform,
+    country,
+    video_type,
+    content_id,
+    app_version,
+    d.1 AS minute,
+    d.2 AS delta
+FROM session_minute_runs
+ARRAY JOIN [(run_start, 1), (run_end + INTERVAL 1 MINUTE, -1)] AS d;

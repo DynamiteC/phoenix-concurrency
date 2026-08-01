@@ -100,3 +100,43 @@ measured in phase 2 against the serving layer.
   76 s means the naive "gap > 60 s closes an interval" rule would cut ~1% of normal traffic.
   Threshold choice belongs in Timeout Rules above.
 - `country` is `india` for the top 10 platform combinations: check whether it is the only value.
+
+## Phase 2 gate (2026-08-01)
+
+Serving layer matches the oracle **exactly**: 3,874 minutes, zero differing rows,
+unfiltered, whole 12-day file.
+
+Two bugs the gate caught, both invisible without it:
+
+1. **Tied timestamps made concurrency non-deterministic.** Clients emit several events in
+   the same millisecond (`BufferStart` / `video_forward` / `dropped-frames`). With ties,
+   `leadInFrame` returns an arbitrary tied row, so the next-event lookup saw the *same*
+   timestamp and the segment fell through to the full 90 s cap. Tie order is not stable
+   between engines, so the same data gave different answers locally and on Cloud. Fixed by
+   collapsing to one row per (session, second), a close beating an open at the same instant.
+   This alone cut derived intervals from 851,919 to 364,769.
+2. **Deltas per interval double-count.** A session pauses and resumes several times inside
+   one minute, so an interval-level +1/-1 counted it repeatedly at that minute. Deltas are
+   emitted from merged per-session minute runs instead, which is exactly what concurrency
+   asks: was this session watching during minute M, once.
+
+Scale of the serving layer: 905,558 events -> 364,769 intervals -> 16,136 minute runs ->
+22,600 delta rows. Dashboards read the 22,600.
+
+Benchmark latency, 26 July, day grain, warm:
+
+| Query | Latency | Peak | Peak minute |
+|---|---|---|---|
+| All platforms | 15 ms | 2,959 | 10:56 |
+| platform = ANDROID_PHONE | 8 ms | 1,807 | 10:56 |
+| platform + country | 27 ms | 1,807 | 10:56 |
+| video_type = live, hour grain | 23 ms | 444 | 10:45 |
+
+The live slice peaks at 10:45 while the unfiltered curve peaks at 10:56, which is the
+per-dimension-combination behaviour the problem statement calls out. A stored peak would be
+wrong for every slice but the one it was computed for.
+
+**100x note.** The cumulative sum starts at the first minute of the series, not at the start
+of the queried range, so it reads the whole history of the filtered slice. At 12 days and
+22,600 rows that is free. At 100x, insert periodic snapshot rows carrying the running total
+at day boundaries so the sum starts from the nearest snapshot.
