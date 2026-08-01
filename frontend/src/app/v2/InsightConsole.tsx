@@ -16,6 +16,7 @@ const VIEWS = [
   {id: 'versions', label: 'App versions', blurb: 'which build loses viewers'},
   {id: 'switching', label: 'Content switching', blurb: 'who took whose audience'},
   {id: 'handoff', label: 'Device handoff', blurb: 'one person, or two screens'},
+  {id: 'forecast', label: 'Forecast', blurb: 'next 15 min, with its error band'},
   {id: 'lateness', label: 'Data quality', blurb: 'what arrived after we answered'},
 ] as const
 

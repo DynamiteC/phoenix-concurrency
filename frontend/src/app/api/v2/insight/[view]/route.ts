@@ -80,6 +80,12 @@ const VIEWS: Record<string, {file: string; question: string; reads: string; hono
     reads: 'user_platform_transitions',
     honours: ['platform', 'content_id', 'time'],
   },
+  forecast: {
+    file: 'concurrency_forecast.sql',
+    question: 'What is the next fifteen minutes likely to look like, and how sure is that?',
+    reads: 'audience_minute_snapshot',
+    honours: ALL_FILTERS,
+  },
   lateness: {
     file: 'lateness_audit.sql',
     question: 'What arrived late, and did it change an answer we had already given?',
