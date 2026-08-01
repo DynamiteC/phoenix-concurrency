@@ -67,6 +67,28 @@ fi
 
 echo "== $DB: target $TARGET, arrive $ARRIVE per cycle, period ${PERIOD}s, alive $(( HI - LO ))" >&2
 
+# WHY A NEUTRAL HEARTBEAT AND NOT A `resume`. Concurrency here is not
+# driven by pause and resume alone. Two separate things decide whether a
+# session counts: WHICH state it is in, set by the decisive events (play,
+# pause, resume, background, foreground, end), and WHETHER it still counts
+# at all, which is the 90-second tolerance measured from its last event of
+# ANY kind, neutral ones included. A session that played once and never
+# paused still goes dark 90 seconds later, because nothing refreshed the
+# second clock.
+#
+# So the keepalive has to refresh liveness WITHOUT changing state. That is
+# exactly what a neutral heartbeat does, per decision D2: it carries the
+# last decisive state forward and is forbidden from flipping it. Sending
+# `resume` would also keep the session alive, and would lie: `resume` is
+# REACTIVATING, so it claims the session had been paused. That inflates
+# resume_count in session_insight_facts, manufactures paused-to-playing
+# transitions that never happened, and corrupts the pause and resume
+# analytics this data exists to support.
+#
+# The five values rotated through below are the most common real neutral
+# heartbeats in the corpus, so vocabulary_check.sh sees nothing new and the
+# heartbeat mix resembles the real one.
+
 # The event vocabulary is the one the state machine actually classifies, from
 # sql/schema/03_event_state.sql. VideoSessionStart and VideoPlay open a session,
 # VideoSessionEnd closes it, and a bare VideoHeartbeat is NEUTRAL: it carries the previous
@@ -101,12 +123,13 @@ while :; do
       ['ANDROID_PHONE','IPHONE','ANDROID_TV','WEB','FIRETV'] AS plats,
       ['india','usa','uae','uk','canada']                    AS ctys,
       ['6.34.8','6.25.1','8.9.5','3.11.1']                   AS vers,
-      [2078157818, 2078157806, 2078158120, 20985523, 21009390] AS contents
+      [2078157818, 2078157806, 2078158120, 20985523, 21009390] AS contents,
+      ['network-activity','buffer-health','video-resize','BufferStart','BufferEnd'] AS hb
     -- KEEPALIVE for everyone still alive. Neutral heartbeat: carries the open state forward.
     SELECT
       contents[(n % 5) + 1],
       concat('ld_', toString(n)), concat('lu_', toString(n)),
-      'VideoHeartbeat', 'network-bandwidth', ts,
+      'VideoHeartbeat', hb[(n % 5) + 1], ts,
       plats[(n % 5) + 1], vers[(n % 4) + 1], ctys[(n % 5) + 1], 'hi', 'none', 'exo',
       ts$(evid "$cycle" h)
     FROM (SELECT ${new_lo} + number AS n FROM numbers(${new_hi} - ${arrive} - ${new_lo}))

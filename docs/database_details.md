@@ -94,12 +94,11 @@ later.
 Two, as of the 2026-08-01 cleanup:
 
 ```
-phoenix    the real one: validated corpus + live ingest      12 tables, 27.60 MiB
-default    ClickStack's OpenTelemetry schema, written by
-           the HyperDX collector, see clickstack.md          12 tables, 64.58 KiB
+phoenix        the real one: validated corpus + live ingest  12 tables, 27.60 MiB
+phoenix_next   generation-2 replica carrying the insight layer
 ```
 
-Plus the ClickHouse-supplied `system`, `information_schema` and `INFORMATION_SCHEMA`.
+Plus the ClickHouse-supplied `system`, `information_schema`, `INFORMATION_SCHEMA`, and `default` (ClickStack's OpenTelemetry schema).
 
 `phoenix` now holds **exactly** the 12 objects `sql/schema/` defines, with nothing else. That was
 not true before the cleanup, and the discrepancy is worth naming because it is the failure mode this
