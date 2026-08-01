@@ -57,3 +57,17 @@ git status --short        # must never show a .csv
 ```
 
 Needs the `clickhouse` binary on PATH (`curl https://clickhouse.com/ | sh`). Nothing else.
+
+## The service
+
+ClickHouse Cloud, `ap-south-1`, database `phoenix`. Credentials live in `.env`, never in git.
+
+```bash
+./scripts/init_db.sh                                        # database + every DDL in sql/schema
+./scripts/load.sh data/ch-hackathon-content-data.csv content
+./scripts/load.sh data/ch-hackathon-raw-data.csv raw_events_landing
+./scripts/ch.sh --query "SELECT count() FROM raw_events"    # ad-hoc queries, UTC pinned
+```
+
+Loaded: 905,558 events over 10,866 sessions and 9,618 users, 2026-07-14 15:43 to
+2026-07-26 11:30 UTC, plus 33,464 content rows. 232 MB of CSV compresses to 3.76 MiB on disk.

@@ -21,5 +21,6 @@ FROM file('$FILE', CSVWithNames);"
   --param_tolerance_s="${TOLERANCE_S:-90}" \
   --param_pause_inactive="${PAUSE_INACTIVE:-1}" \
   --format "${FORMAT:-PrettyCompact}" \
+  --session_timezone UTC \
   --schema_inference_make_columns_nullable=0   # CSV inference makes everything Nullable, which
                                                # blocks arrayJoin(timeSlots(...)) and hides nulls

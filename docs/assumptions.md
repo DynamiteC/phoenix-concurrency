@@ -70,6 +70,12 @@ measured in phase 2 against the serving layer.
 ## Open Questions
 
 - Watermark / lateness tolerance for phase 3.
+- 25,810 events (2.9%) point at content rows whose `video_type` is blank. Decide whether a
+  `video_type` filter should treat those as their own bucket or exclude them.
+- `content` contains a sentinel row with `content_id = -987654322`. Harmless (no event
+  references it), but do not assume ids are positive.
+- Service is UTC, local `clickhouse local` is Asia/Kolkata. Both scripts now pin
+  `session_timezone=UTC`. Any ad-hoc `clickhouse local` run outside them will be 5:30 off.
 - `country` has exactly one value (`india`) in this sample. Stays in the serving key for the
   unseen day, but it buys no selectivity today and must not be relied on for pruning.
 - Sample has **zero open sessions**; the unseen day is stated to have them. Open-session
