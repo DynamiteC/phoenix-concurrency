@@ -209,6 +209,26 @@ else
   echo "   updated dashboard $DASH" >&2
 fi
 
+echo "== 5. verify HyperDX itself reads OUR service, not its bundled one" >&2
+# This is the step that makes the whole thing checkable rather than claimed. Running the panel
+# SQL against ClickHouse directly proves the SQL is valid; it proves nothing about which database
+# HyperDX will use. So run it through HyperDX's own proxy, pinned to the connection the panels
+# use, and require rows back. If the app ever falls back to the bundled ClickHouse, phoenix.*
+# does not exist there and this fails loudly.
+proxy() {
+  curl -sSL -b "$JAR" -H "x-hyperdx-connection-id: $CONN" -H 'content-type: text/plain' \
+    --max-time 60 -X POST --data-binary "$1" "$HDX/api/clickhouse-proxy"
+}
+verify="$(proxy "SELECT count() FROM phoenix.concurrency_deltas FORMAT TSV" | tr -d '[:space:]')"
+case "$verify" in
+  ''|*[!0-9]*) echo "FAIL: HyperDX could not read phoenix.concurrency_deltas: $verify" >&2; exit 1;;
+esac
+[ "$verify" -gt 0 ] || { echo "FAIL: phoenix.concurrency_deltas read 0 rows through HyperDX" >&2; exit 1; }
+echo "   HyperDX read $verify delta rows from phoenix via connection $CONN" >&2
+
+lag="$(proxy "SELECT dateDiff('second', max(event_timestamp), now()) FROM phoenix.raw_events FORMAT TSV" | tr -d '[:space:]')"
+echo "   watermark lag through HyperDX: ${lag}s" >&2
+
 echo >&2
 echo "ClickStack ready: $HDX/dashboards/$DASH" >&2
 echo "  login: $EMAIL / $PASSWORD" >&2

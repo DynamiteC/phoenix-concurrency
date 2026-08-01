@@ -55,6 +55,24 @@ still reads the wrong database:
 `https://${CH_HOST}:8443` and hangs the source and all five panels off that one. The artifact
 records both connection hosts side by side so the distinction is visible rather than asserted.
 
+**And the script now proves it rather than assuming it.** Step 5 runs the panel SQL through
+HyperDX's *own* `/api/clickhouse-proxy`, pinned to the connection the panels use, and fails if it
+does not get rows back. Running the SQL against ClickHouse directly only proves the SQL is valid;
+it says nothing about which database HyperDX will choose. Measured on the last run: HyperDX read
+**33,489** delta rows from `phoenix` and a watermark lag of **53s** through that connection. If
+the app ever falls back to the bundled instance, `phoenix.*` does not exist there and the setup
+fails loudly instead of producing an empty dashboard.
+
+Sample returned through the proxy, newest minutes first, which is the curve panel's own query:
+
+```
+minute                concurrent_sessions
+2026-08-01 16:09:00   42
+2026-08-01 16:08:00   68
+2026-08-01 16:07:00   62
+2026-08-01 16:06:00   63
+```
+
 Note the port. `8443` is the HTTPS interface; `CH_PORT=9440` in `.env` is the native secure
 protocol port for `clickhouse-client`. Pointing an HTTPS client at 9440 is the same bug the
 Next.js console shipped with, and it is why `frontend/src/lib/env.ts` now refuses to read
