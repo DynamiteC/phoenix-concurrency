@@ -55,6 +55,11 @@ previous values and are kept deliberately as the audit trail.
 | **`phoenix_next`, the generation-2 replica**, re-derived independently, 21,600 minutes at 0 diffs | `replicate_phoenix_to_phoenix_next`, `replica_parity_phoenix_next` | done |
 | **Schema drift detector**, and the index it found live that no file in the repo created | `schema_drift_phoenix`, `schema_drift_phoenix_next` | done |
 | Trustworthy `arrival_timestamp`, materialised by the MV, sentinel on copied rows | `replicate_phoenix_to_phoenix_next` | done |
+| **`session_insight_facts`**, the keystone, 10,866 sessions and 31 columns at 0 diffs vs an independent ground truth | `insight_parity_session_facts` | done |
+| Insight read cost: 6 shapes, `raw_events` absent from every plan, budget set from measurement | `insight_bench_session_facts_app_version_health` | done |
+| Insight refresh idempotence: 238,983 stored versions collapse to 119,491 rows under FINAL | `refresh_insights_phoenix_next` | done |
+| Lateness policy enforced and classified, 8 of 8, boundary marked provisional | `lateness_classifier` | done |
+| Session-end rule ruled on with a measurement (D13) | `end_rule_first_vs_last` | done |
 
 ### `phoenix_next`, and what replicating proved
 
@@ -86,6 +91,7 @@ which would have compared a replica's serving layer against phoenix's raw data a
 
 | Item | State | Blocker | Owner |
 |---|---|---|---|
+| **`phoenix.concurrency_boundary_deltas` is undeclared production DDL, and a re-derive will double it** | Appeared in `phoenix` at 18:02 UTC on 2026-08-01, out of band, in no file in this repo: a `SummingMergeTree` at 79,371 rows plus a materialized view over `foreground_intervals`. Found by `scripts/schema_drift.sh` within minutes of that check existing. It is **absent from both guard lists**, `derive.sh:44` and `rebuild_swap.sh:33`, so `REBUILD=1 ./scripts/derive.sh` truncates the five tables it knows about, re-inserts into `foreground_intervals`, fires this MV a second time, and appends a whole duplicate set to a table nothing truncated. `sum(delta)` stays **0** throughout, because every duplicated `+1` brings its own `-1`. That is the exact doubling bug `derive.sh`'s own header documents, reintroduced in a table no guard covers. | Whoever created it: is it staying? If yes it needs a file in `sql/schema/` and a place in both guard lists. If no, drop it. | **unassigned, needs its author** |
 | Read budgets after the rebuild | Re-measured: worst shape 30,662 rows against the committed 80,712 ceiling, 490,592 bytes against 1,291,392. Valid **today**, and see the countdown below, because this is a ceiling we are walking toward rather than a property we hold. One bench shape (`country`) returned `NA` because its `query_log` lookup did not resolve; the other seven are complete. | Re-run `./scripts/bench.sh` to fill that one cell | unassigned |
 
 ### The read budget is a countdown, not a pass
