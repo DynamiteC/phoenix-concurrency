@@ -91,4 +91,20 @@ fi
 # kind of property, but run from here so there is a single command to remember.
 ./scripts/check_query_sources.sh || fail=1
 
+# Does the server still match sql/schema/? This is the only check here that needs the network,
+# and it earns the ten seconds: phoenix was found carrying an index that no file in the repo
+# created, and rebuild_swap.sh builds its shadow from these files and then EXCHANGEs it into
+# production, so the next rebuild would have deleted that index with every existing gate still
+# green. Drift is invisible precisely until it destroys something.
+#
+# SKIP_DRIFT=1 for an offline run. phoenix carries a deliberate generation gap and passes with
+# an allowlist; phoenix_next is what sql/schema/ actually describes and must be clean.
+if [ "${SKIP_DRIFT:-0}" = "1" ]; then
+  echo "skipped: schema drift (SKIP_DRIFT=1)"
+else
+  DRIFT_QUIET=1 DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv' \
+    ./scripts/schema_drift.sh phoenix      2>&1 | grep -v 'Unknown settings' || fail=1
+  DRIFT_QUIET=1 ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1
+fi
+
 exit "$fail"

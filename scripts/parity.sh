@@ -64,7 +64,7 @@ echo "   oracle minutes: $(wc -l < "$TMP/oracle.tsv")"
 served() { CH_DATABASE="$1" ch --format TSV "${FULL[@]}" --queries-file "$2" \
              | awk -F'\t' '$2 > 0 {print $1 "\t" $2}' | sort; }
 
-echo "== 2. batch path: phoenix serving layer vs oracle"
+echo "== 2. batch path: $BATCH_DB serving layer vs oracle"
 served "$BATCH_DB" sql/queries/serving/concurrency_curve.sql      > "$TMP/batch_sessions.tsv"
 served "$BATCH_DB" sql/queries/serving/user_concurrency_curve.sql > "$TMP/batch_users.tsv"
 
@@ -72,8 +72,21 @@ echo "== 3. incremental path: $INCR_DB, derived only by 03 over the whole span"
 ch --query "DROP DATABASE IF EXISTS $INCR_DB"
 ch --query "CREATE DATABASE $INCR_DB"
 for f in sql/schema/*.sql; do CH_DATABASE="$INCR_DB" ch --queries-file "$f"; done
-CH_DATABASE="$INCR_DB" ch --query "INSERT INTO content SELECT * FROM phoenix.content"
-CH_DATABASE="$INCR_DB" ch --query "INSERT INTO raw_events SELECT * FROM phoenix.raw_events"
+# Seed from BATCH_DB, not from a hardcoded phoenix. Comparing an incremental derivation of
+# phoenix's raw data against a batch derivation of some OTHER database's raw data is a green
+# result that means nothing, and it would have gone green the first time it was pointed at a
+# replica.
+#
+# Explicit column list rather than SELECT *: raw_events carries arrival_timestamp from
+# generation 2 onward and phoenix does not, so the shapes differ by source. These thirteen are
+# the columns every generation shares, and the scratch database's arrival_timestamp correctly
+# defaults to the not-observed sentinel because these rows did not arrive, they were copied.
+RAW_COLS='video_session_id, user_id, content_id, event_type, event, event_timestamp,
+          platform, app_version, country, audio_language, subtitle_language, player_version,
+          session_start_epoch'
+CH_DATABASE="$INCR_DB" ch --query "INSERT INTO content SELECT * FROM ${BATCH_DB}.content"
+CH_DATABASE="$INCR_DB" ch --query \
+  "INSERT INTO raw_events ($RAW_COLS) SELECT $RAW_COLS FROM ${BATCH_DB}.raw_events"
 CH_DATABASE="$INCR_DB" ch --param_tolerance_s="$TOL" --param_pause_inactive="$PI" \
   --param_from_ts='2000-01-01 00:00:00' --param_to_ts='2100-01-01 00:00:00' \
   --queries-file sql/pipeline/03_derive_incremental.sql

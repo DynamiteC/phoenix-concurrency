@@ -118,7 +118,12 @@ miss rather than a loss.
 | `phoenix_scratch_openday` | `scripts/open_session_demo.sh` |
 | `phoenix_open_test`, `phoenix_open_truth` | `scripts/test_open_sessions.sh` |
 | `phoenix_scratch_keyorder` | `scripts/key_order_experiment.sh` |
-| `phoenix_next` | `scripts/rebuild_swap.sh` |
+| `phoenix_next` | `scripts/rebuild_swap.sh`, since renamed `phoenix_rebuild` (D9 amendment) |
+
+**The name `phoenix_next` has since been reassigned.** It is now the generation-2 database: a
+replica of `phoenix` carrying the insight layer, durable rather than scratch. `rebuild_swap.sh`
+drops its shadow twice per run, so its default moved to `phoenix_rebuild` before the two could
+collide. Anything below describing `phoenix_next` as a scratch database is history.
 
 `phoenix_next` was the odd one out and got an explicit decision rather than a sweep.
 `rebuild_swap.sh --keep-shadow` leaves the **previous** derived tables there after a swap, so it

@@ -22,12 +22,28 @@ CREATE TABLE IF NOT EXISTS raw_events
     subtitle_language   LowCardinality(String),
     player_version      LowCardinality(String),
     session_start_epoch DateTime64(3),
-    -- Wall-clock arrival, distinct from event_timestamp. Lateness is (ingested_at -
-    -- event_timestamp), which is what sizes the re-derive lookback window. DEFAULT rather
-    -- than a column the ingest script supplies: raw_events_mv selects an explicit column
-    -- list, so the default fires on every MV-inserted row and an ingest script physically
-    -- cannot forget it.
-    ingested_at         DateTime DEFAULT now()
+    -- SUPERSEDED by arrival_timestamp below. Kept because dropping a column from a live
+    -- table is a mutation and this one is load-bearing in nothing. Do not filter on it:
+    -- it was added by ALTER after the July rows were loaded, ClickHouse does not rewrite
+    -- existing parts, so for those rows DEFAULT now() is evaluated AT READ TIME and the
+    -- column equals the wall clock of whichever query reads it. Proven in
+    -- evidence/ingested_at_nondeterminism: 905,558 rows, exactly the corpus.
+    ingested_at         DateTime DEFAULT now(),
+
+    -- Trustworthy arrival time, the column ingested_at failed to be. Two rules make it work:
+    --
+    --   The DEFAULT is a CONSTANT, epoch 0, meaning "arrival not observed". A DEFAULT now64(3)
+    --   here would reproduce the ingested_at bug exactly: read-time evaluation on any part
+    --   written before the column existed.
+    --
+    --   The real value comes from raw_events_mv, which selects now64(3) explicitly, so it is
+    --   MATERIALISED into the part at insert time and cannot drift afterwards. Every row that
+    --   arrives through the landing table therefore carries a true arrival instant, and every
+    --   row inserted directly (a replica copy, a backfill) carries the sentinel.
+    --
+    -- Lateness is (arrival_timestamp - event_timestamp) over rows with arrival_timestamp > 0
+    -- ONLY. Including sentinel rows manufactures a zero-lateness distribution.
+    arrival_timestamp   DateTime64(3) DEFAULT toDateTime64(0, 3)
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(event_timestamp)
@@ -58,5 +74,9 @@ SELECT
     video_session_id, user_id, content_id, event_type, event,
     fromUnixTimestamp64Milli(event_timestamp)     AS event_timestamp,
     platform, app_version, country, audio_language, subtitle_language, player_version,
-    fromUnixTimestamp64Milli(session_start_epoch) AS session_start_epoch
+    fromUnixTimestamp64Milli(session_start_epoch) AS session_start_epoch,
+    -- Observed at the moment the row lands, materialised into the part. The landing table
+    -- deliberately does NOT carry this column: it matches the CSV exactly, and a producer
+    -- that supplies its own arrival time is supplying a claim, not an observation.
+    now64(3)                                      AS arrival_timestamp
 FROM raw_events_landing;

@@ -52,6 +52,35 @@ previous values and are kept deliberately as the audit trail.
 | One source of truth for shipped query text, machine-checked | `oracle_parity` | done |
 | Sparse-series sweep: every instance found, fixed or labelled | `runbook_validation` | done |
 | Decisions register, backfilled | [`DECISIONS.md`](DECISIONS.md) | done |
+| **`phoenix_next`, the generation-2 replica**, re-derived independently, 21,600 minutes at 0 diffs | `replicate_phoenix_to_phoenix_next`, `replica_parity_phoenix_next` | done |
+| **Schema drift detector**, and the index it found live that no file in the repo created | `schema_drift_phoenix`, `schema_drift_phoenix_next` | done |
+| Trustworthy `arrival_timestamp`, materialised by the MV, sentinel on copied rows | `replicate_phoenix_to_phoenix_next` | done |
+
+### `phoenix_next`, and what replicating proved
+
+`phoenix` is generation 1 and is never written to by this workstream. `phoenix_next` is generation 2:
+`scripts/replicate.sh` copies `raw_events` and `content` at a pinned cut and then runs the
+**unmodified** pipeline, so its serving layer is an independent derivation rather than a copy. That
+distinction is the whole point. `scripts/replica_parity.sh` compares the two on the frozen slice and
+gets 0 differing rows, 0 missing keys and 0 unexpected keys across 21,600 minutes, with peak 2,828,
+17,585 asserted session runs and all three averages identical on both sides. The pipeline is
+reproducible, and the replica is a trustworthy base for the insight layer.
+
+Replicating also surfaced what a paper review had missed. `phoenix.session_minute_runs` carried
+`INDEX idx_run_range (run_start, run_end) TYPE minmax GRANULARITY 4`, created out of band and
+present in no file in this repo. `rebuild_swap.sh` builds its shadow from `sql/schema/` and then
+`EXCHANGE`s the tables into `phoenix`, so **the next rebuild would have deleted that index from
+production**, and closure, overshoot and row counts would all still have passed. The index is now
+declared in `sql/schema/04_concurrency.sql`, and `scripts/schema_drift.sh` runs inside
+`check_docs.sh` against both databases so the next out-of-band change fails a check instead of
+waiting to be noticed. It also falsified a sentence in `database_details.md` that said `phoenix`
+held exactly the 12 objects `sql/schema/` defines.
+
+Two related renames: the rebuild shadow moved from `phoenix_next` to `phoenix_rebuild`, because
+`rebuild_swap.sh` drops its shadow twice per run and would have wiped the new database (D9
+amendment). `scripts/lib/evidence.sh` no longer hardcodes `CH_DATABASE=phoenix` in the data stamp,
+and `scripts/parity.sh` no longer seeds its scratch database from a literal `phoenix.raw_events`,
+which would have compared a replica's serving layer against phoenix's raw data and gone green.
 
 ## In flight
 

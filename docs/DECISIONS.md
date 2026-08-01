@@ -163,6 +163,14 @@ around, per operating rule 0.4.
 
 **Decided:** 2026-08-01. **Evidence:** `[V:rebuild_swap_phoenix_next]`, `[V:rebuild_idempotence]`.
 
+**Amended 2026-08-01, shadow renamed to `phoenix_rebuild`.** The shadow defaulted to
+`phoenix_next`, and `phoenix_next` is now the generation-2 database holding the insight layer.
+`rebuild_swap.sh` drops its shadow at the start of every run and again at the end, so one rebuild
+would have wiped it. The default moved to `phoenix_rebuild`; nothing else about D9 changes. The
+evidence name is derived from the shadow database, so the next run writes claim
+`rebuild_swap_phoenix_rebuild` and the two citations above remain correct as history: the artifact
+they point at really was produced against a shadow called `phoenix_next`.
+
 ## D10. ClickStack is live; the console is frozen
 
 **Question.** Should both surfaces read the same rows?
