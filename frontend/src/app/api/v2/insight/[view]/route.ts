@@ -17,42 +17,64 @@ import type {ApiError, InsightTableResponse} from '@/lib/types'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/** view name -> the shipped query that answers it, and the question it answers. */
-const VIEWS: Record<string, {file: string; question: string; reads: string}> = {
+/**
+ * view name -> the shipped query that answers it, the question it answers, and which of the
+ * standard filters that query can actually honour.
+ *
+ * `honours` is not decoration. A query that does not reference a parameter ignores it silently,
+ * so a viewer who sets a platform filter on the spike view would get the same rows back and
+ * reasonably conclude the platform made no difference. The console reads this list and says which
+ * filters are inert for the current view, which is the difference between a limitation and a bug.
+ */
+const ALL_FILTERS = ['platform', 'country', 'video_type', 'app_version', 'content_id', 'time'] as const
+
+const VIEWS: Record<string, {file: string; question: string; reads: string; honours: readonly string[]}> = {
   flow: {
     file: 'audience_snapshot_minute_trend.sql',
     question: 'How did the audience arrive and leave, minute by minute?',
     reads: 'audience_minute_snapshot',
+    honours: ALL_FILTERS,
   },
   states: {
     file: 'state_flow.sql',
     question: 'How many backgrounded, how many came back, how many went silent?',
     reads: 'session_state_transitions',
+    honours: ALL_FILTERS,
   },
   retention: {
     file: 'cohorts_retention_curve.sql',
     question: 'Did the viewers it gained actually stay?',
     reads: 'content_entry_cohorts',
+    honours: ALL_FILTERS,
   },
   health: {
     file: 'health_incident_window.sql',
     question: 'Did errors or heartbeat gaps cause the drop?',
     reads: 'playback_health_minute',
+    honours: ALL_FILTERS,
   },
   versions: {
     file: 'session_facts_app_version_health.sql',
     question: 'Which app version loses viewers?',
     reads: 'session_insight_facts',
+    honours: ALL_FILTERS,
   },
   spikes: {
     file: 'spike_explanation.sql',
     question: 'Why did concurrency spike, and was it healthy or short-lived?',
+    // A spike is detected on the total curve for a piece of content, so it has no platform or
+    // country of its own. What it has are the contribution columns, which are attributes of the
+    // spike rather than filters on it.
     reads: 'concurrency_spike_events',
+    honours: ['content_id', 'time'],
   },
   lateness: {
     file: 'lateness_audit.sql',
     question: 'What arrived late, and did it change an answer we had already given?',
+    // late_event_audit carries the event and its timing, not the session's dimensions. Joining
+    // back to raw_events for them would put raw_events in this query's plan, which Gate B forbids.
     reads: 'late_event_audit',
+    honours: ['time'],
   },
 }
 
@@ -83,6 +105,8 @@ export async function GET(
       // Named so a reader can go from a number on screen to the table it came from without
       // reading the SQL. This is the plan's Gate B evidence, made visible rather than filed.
       reads: spec.reads,
+      honours: spec.honours,
+      ignores: ALL_FILTERS.filter((f) => !spec.honours.includes(f)),
       database: INSIGHT_DATABASE,
       sqlFile: `sql/insights/benchmark/${spec.file}`,
       columns: result.meta.map((c) => c.name),

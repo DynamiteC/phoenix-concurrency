@@ -388,3 +388,32 @@
   outline: 3px solid var(--text-base);
   outline-offset: 0;
 }
+
+/* ---- filter fields ---- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.fieldLabel {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--line-structure);
+  margin: var(--spacing-8) 0 0;
+}
+
+/* Stated limitation, not an error: warn-weighted so it reads as a caveat rather than a failure. */
+.ignores {
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--state-warn);
+  padding-left: var(--spacing-8);
+  max-width: 76ch;
+}

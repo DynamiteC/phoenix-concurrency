@@ -122,6 +122,10 @@ export interface InsightTableResponse {
   question: string
   /** The table it read. Named on screen so a number is one hop from its source. */
   reads: string
+  /** Filters this view's query actually references. */
+  honours: readonly string[]
+  /** Filters it will silently ignore, surfaced so an inert control is stated, not discovered. */
+  ignores: readonly string[]
   database: string
   sqlFile: string
   columns: string[]

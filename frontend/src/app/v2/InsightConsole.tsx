@@ -1,7 +1,7 @@
 'use client'
 
 import {useCallback, useEffect, useState} from 'react'
-import type {InsightStatusResponse, InsightTableResponse} from '@/lib/types'
+import type {ClientFilters, DimensionValue, InsightStatusResponse, InsightTableResponse} from '@/lib/types'
 import {istDateTime} from '@/lib/time'
 import styles from './console.module.css'
 
@@ -49,6 +49,23 @@ function windowFor(range: RangeId, rawLatest: string | null): {from: string; to:
   const from = toCh(new Date(end.getTime() - Number(range) * 3_600_000))
   return {from, to}
 }
+
+const EMPTY_FILTERS: ClientFilters = {
+  platform: '',
+  country: '',
+  video_type: '',
+  app_version: '',
+  content_id: 0,
+  from_ts: '',
+  to_ts: '',
+}
+
+const DIMS: {key: 'platform' | 'country' | 'video_type' | 'app_version'; label: string}[] = [
+  {key: 'platform', label: 'Platform'},
+  {key: 'country', label: 'Country'},
+  {key: 'video_type', label: 'Video type'},
+  {key: 'app_version', label: 'App version'},
+]
 
 const nf = new Intl.NumberFormat('en-IN')
 
@@ -179,10 +196,21 @@ function Watermarks({status}: {status: InsightStatusResponse}) {
 export default function InsightConsole() {
   const [view, setView] = useState<ViewId>('spikes')
   const [range, setRange] = useState<RangeId>('3')
+  const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS)
+  const [dims, setDims] = useState<DimensionValue[]>([])
+  const [contentText, setContentText] = useState('')
   const [status, setStatus] = useState<InsightStatusResponse | null>(null)
   const [data, setData] = useState<InsightTableResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Fetched once: the dimension set does not change while the console is open.
+  useEffect(() => {
+    fetch('/api/v2/dimensions')
+      .then((r) => r.json())
+      .then((b) => setDims(b.values ?? []))
+      .catch(() => setDims([]))
+  }, [])
 
   useEffect(() => {
     fetch('/api/v2/status', {cache: 'no-store'})
@@ -191,11 +219,16 @@ export default function InsightConsole() {
       .catch((e) => setError((e as Error).message))
   }, [])
 
-  const load = useCallback((id: ViewId, r: RangeId, rawLatest: string | null) => {
+  const load = useCallback((id: ViewId, r: RangeId, rawLatest: string | null, f: ClientFilters) => {
     setLoading(true)
     setData(null)
     const {from, to} = windowFor(r, rawLatest)
     const qs = new URLSearchParams({from, to})
+    if (f.platform) qs.set('platform', f.platform)
+    if (f.country) qs.set('country', f.country)
+    if (f.video_type) qs.set('video_type', f.video_type)
+    if (f.app_version) qs.set('app_version', f.app_version)
+    if (f.content_id) qs.set('content_id', String(f.content_id))
     fetch(`/api/v2/insight/${id}?${qs}`, {cache: 'no-store'})
       .then(async (r) => {
         const b = await r.json()
@@ -211,8 +244,8 @@ export default function InsightConsole() {
   // than on a default that would have to be corrected a moment later.
   useEffect(() => {
     if (range !== 'all' && !status) return
-    load(view, range, status?.rawLatest ?? null)
-  }, [view, range, status, load])
+    load(view, range, status?.rawLatest ?? null, filters)
+  }, [view, range, status, filters, load])
 
   const spike = status?.spikeEvents ?? 0
   const late = status?.lateEvents ?? 0
@@ -240,6 +273,51 @@ export default function InsightConsole() {
         </nav>
 
         <div className={styles.rangeBlock}>
+          <span className={styles.footLabel}>Dimensions</span>
+          {DIMS.map(({key, label}) => (
+            <div key={key} className={styles.field}>
+              <label className={styles.fieldLabel} htmlFor={key}>{label}</label>
+              <select
+                id={key}
+                className={styles.select}
+                value={filters[key]}
+                onChange={(e) => setFilters({...filters, [key]: e.target.value})}
+              >
+                <option value="">all</option>
+                {dims.filter((d) => d.dim === key).map((d) => (
+                  <option key={d.value} value={d.value}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor="content">Content</label>
+            {/* By TITLE, never by id, for the reason the v1 rail gives: thousands of content ids
+                reach the serving layer and nobody filtering a dashboard knows which 8-digit number
+                is which show. Local text state, because deriving the input value from content_id
+                erases every keystroke that does not yet complete a real title. */}
+            <input
+              id="content"
+              className={styles.select}
+              list="v2-content-titles"
+              placeholder="all titles"
+              value={contentText}
+              onChange={(e) => {
+                setContentText(e.target.value)
+                const match = dims.find((d) => d.dim === 'content' && d.label === e.target.value)
+                setFilters({...filters, content_id: Number(match?.value ?? 0)})
+              }}
+            />
+            <datalist id="v2-content-titles">
+              {dims.filter((d) => d.dim === 'content').map((d) => (
+                <option key={d.value} value={d.label}/>
+              ))}
+            </datalist>
+          </div>
+
+          <hr className={styles.rule}/>
+
           <label className={styles.footLabel} htmlFor="range">Window</label>
           <select
             id="range"
@@ -310,6 +388,13 @@ export default function InsightConsole() {
                   <code>{data.sqlFile}</code>
                 </span>
               </div>
+              {data.ignores.length > 0 && (
+                <p className={styles.ignores}>
+                  This view cannot filter by {data.ignores.filter((f) => f !== 'time').join(', ')}.
+                  The table it reads does not carry those columns, so those controls are inert here
+                  rather than returning a filtered answer.
+                </p>
+              )}
             </div>
             <DataTable data={data}/>
           </section>
