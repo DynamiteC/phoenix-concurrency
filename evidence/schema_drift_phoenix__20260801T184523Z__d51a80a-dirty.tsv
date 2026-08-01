@@ -1,0 +1,53 @@
+# evidence: schema_drift_phoenix
+# what: live structure of phoenix against sql/schema/, via an empty reference database
+# run_utc: 2026-08-01 18:45:23
+# git: d51a80a-dirty
+# host: ss-cric
+# row_count: 3223714
+# event_watermark: 2026-08-01 17:28:12.211
+# frozen_before: 2026-08-01
+# frozen_slice_rows: 905558   (event_timestamp < frozen_before, the validated corpus)
+# ingest_watermark: 2026-08-01 18:45:23   (NOT REPRODUCIBLE, see below)
+# ingest_watermark_warning: ingested_at was added by ALTER after the July rows were loaded.
+#   ClickHouse does not rewrite existing parts, so for those 905,558 rows the DEFAULT now()
+#   is evaluated AT READ TIME and the column equals the wall clock of whichever query reads
+#   it. Proven in evidence/ingested_at_nondeterminism. Do not filter on it.
+metric	value
+target_database	phoenix
+reference_database	phoenix_schema_ref	(empty, built from sql/schema/)
+drift_allow	arrival_timestamp,mv_body raw_events_mv,concurrency_boundary_deltas,concurrency_deltas_naive,event_id
+differences	0	(required 0)
+allowed_differences	32
+verdict	PASS
+allowed_difference	> column	concurrency_boundary_deltas	app_version	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas	content_id	Int64			
+allowed_difference	> column	concurrency_boundary_deltas	country	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas	delta	Int32			
+allowed_difference	> column	concurrency_boundary_deltas	platform	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas	ts	DateTime			
+allowed_difference	> column	concurrency_boundary_deltas	video_type	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas_mv	app_version	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas_mv	content_id	Int64			
+allowed_difference	> column	concurrency_boundary_deltas_mv	country	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas_mv	delta	Int16			
+allowed_difference	> column	concurrency_boundary_deltas_mv	platform	LowCardinality(String)			
+allowed_difference	> column	concurrency_boundary_deltas_mv	ts	DateTime			
+allowed_difference	> column	concurrency_boundary_deltas_mv	video_type	LowCardinality(String)			
+allowed_difference	> column	concurrency_deltas_naive	app_version	LowCardinality(String)			
+allowed_difference	> column	concurrency_deltas_naive	content_id	Int64			
+allowed_difference	> column	concurrency_deltas_naive	country	LowCardinality(String)			
+allowed_difference	> column	concurrency_deltas_naive	delta	Int32			
+allowed_difference	> column	concurrency_deltas_naive	minute	DateTime			
+allowed_difference	> column	concurrency_deltas_naive	platform	LowCardinality(String)			
+allowed_difference	> column	concurrency_deltas_naive	video_type	LowCardinality(String)			
+allowed_difference	< column	raw_events	arrival_timestamp	DateTime64(3)	DEFAULT	toDateTime64(0, 3)	
+allowed_difference	> column	raw_events	event_id	String			
+allowed_difference	> column	raw_events_landing	event_id	String			
+allowed_difference	< column	raw_events_mv	arrival_timestamp	DateTime64(3)			
+allowed_difference	> column	raw_events_mv	event_id	String			
+allowed_difference	> mv_body	concurrency_boundary_deltas_mv	CREATE MATERIALIZED VIEW DB.concurrency_boundary_deltas_mv TO DB.concurrency_boundary_deltas (`platform` LowCardinality(String), `country` LowCardinality(String), `video_type` LowCardinality(String), `content_id` Int64, `app_version` LowCardinality(String), `ts` DateTime, `delta` Int16) AS SELECT platform, country, video_type, content_id, app_version, b.1 AS ts, b.2 AS delta FROM DB.foreground_intervals ARRAY JOIN [(interval_start, 1), (interval_end, -1)] AS b WHERE interval_start < interval_end
+allowed_difference	< mv_body	raw_events_mv	CREATE MATERIALIZED VIEW DB.raw_events_mv TO DB.raw_events (`video_session_id` String, `user_id` String, `content_id` Int64, `event_type` LowCardinality(String), `event` LowCardinality(String), `event_timestamp` DateTime64(3), `platform` LowCardinality(String), `app_version` LowCardinality(String), `country` LowCardinality(String), `audio_language` LowCardinality(String), `subtitle_language` LowCardinality(String), `player_version` LowCardinality(String), `session_start_epoch` DateTime64(3), `arrival_timestamp` DateTime64(3)) AS SELECT video_session_id, user_id, content_id, event_type, event, fromUnixTimestamp64Milli(event_timestamp) AS event_timestamp, platform, app_version, country, audio_language, subtitle_language, player_version, fromUnixTimestamp64Milli(session_start_epoch) AS session_start_epoch, now64(3) AS arrival_timestamp FROM DB.raw_events_landing
+allowed_difference	> mv_body	raw_events_mv	CREATE MATERIALIZED VIEW DB.raw_events_mv TO DB.raw_events (`video_session_id` String, `user_id` String, `content_id` Int64, `event_type` LowCardinality(String), `event` LowCardinality(String), `event_timestamp` DateTime64(3), `platform` LowCardinality(String), `app_version` LowCardinality(String), `country` LowCardinality(String), `audio_language` LowCardinality(String), `subtitle_language` LowCardinality(String), `player_version` LowCardinality(String), `session_start_epoch` DateTime64(3), `event_id` String) AS SELECT video_session_id, user_id, content_id, event_type, event, fromUnixTimestamp64Milli(event_timestamp) AS event_timestamp, platform, app_version, country, audio_language, subtitle_language, player_version, fromUnixTimestamp64Milli(session_start_epoch) AS session_start_epoch, event_id FROM DB.raw_events_landing
+allowed_difference	> table	concurrency_boundary_deltas	SharedSummingMergeTree	platform, country, video_type, content_id, app_version, ts		platform, country, video_type, content_id, app_version, ts	
+allowed_difference	> table	concurrency_boundary_deltas_mv	MaterializedView				
+allowed_difference	> table	concurrency_deltas_naive	SharedSummingMergeTree	platform, country, video_type, content_id, app_version, minute		platform, country, video_type, content_id, app_version, minute	

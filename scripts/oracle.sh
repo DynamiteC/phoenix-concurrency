@@ -17,7 +17,17 @@ VIEW="CREATE VIEW events_src AS SELECT
   fromUnixTimestamp64Milli(session_start_epoch) AS session_start_epoch
 FROM file('$FILE', CSVWithNames);"
 
-{ echo "$VIEW"; cat "$SQL"; } | clickhouse local \
+# content_src, defined only when a content CSV is present, so queries that do not need it are
+# unaffected and queries that do get title and category from the same source of truth the
+# service was loaded from rather than from the service itself. Validating a denormalised title
+# against the table it was denormalised from would prove only that the copy copied.
+CONTENT="${CONTENT_CSV:-data/ch-hackathon-content-data.csv}"
+CVIEW=""
+[ -f "$CONTENT" ] && CVIEW="CREATE VIEW content_src AS SELECT
+  content_id, title, video_type, category
+FROM file('$CONTENT', CSVWithNames);"
+
+{ echo "$VIEW"; [ -n "$CVIEW" ] && echo "$CVIEW"; cat "$SQL"; } | clickhouse local \
   --param_tolerance_s="${TOLERANCE_S:-90}" \
   --param_pause_inactive="${PAUSE_INACTIVE:-1}" \
   --format "${FORMAT:-PrettyCompact}" \

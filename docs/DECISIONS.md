@@ -163,6 +163,14 @@ around, per operating rule 0.4.
 
 **Decided:** 2026-08-01. **Evidence:** `[V:rebuild_swap_phoenix_next]`, `[V:rebuild_idempotence]`.
 
+**Amended 2026-08-01, shadow renamed to `phoenix_rebuild`.** The shadow defaulted to
+`phoenix_next`, and `phoenix_next` is now the generation-2 database holding the insight layer.
+`rebuild_swap.sh` drops its shadow at the start of every run and again at the end, so one rebuild
+would have wiped it. The default moved to `phoenix_rebuild`; nothing else about D9 changes. The
+evidence name is derived from the shadow database, so the next run writes claim
+`rebuild_swap_phoenix_rebuild` and the two citations above remain correct as history: the artifact
+they point at really was produced against a shadow called `phoenix_next`.
+
 ## D10. ClickStack is live; the console is frozen
 
 **Question.** Should both surfaces read the same rows?
@@ -225,6 +233,54 @@ The trade is explicit: the console now needs the repo checkout at runtime, as it
 fixtures, because a bug you cannot reproduce is one you do not understand.
 
 **Decided:** 2026-08-01. **Evidence:** `[V:oracle_parity]`.
+
+## D13. The LAST `VideoSessionEnd` is terminal, not the first
+
+**Question.** D8 bounds every interval at the session's **last** `VideoSessionEnd`. The insights
+plan's Phase 0.2 proposes that the **first** end is terminal and later events carrying the same
+`video_session_id` are ignored. Those are different rules. D8 never ruled on the difference,
+because the measurement that settled D8 answered a different question: it showed that the 14
+multi-end sessions accounted for **zero** of the 385 intervals that overshot their session end.
+Zero overshoots is not zero difference between the two rules, and the register read as though it
+were.
+
+**Measured on the frozen slice**, `[V:end_rule_first_vs_last]`:
+
+| | |
+|---|---:|
+| Sessions with more than one `VideoSessionEnd` | 14 |
+| Widest gap between first and last end | 664 s |
+| Events a first-end rule would discard | 70 |
+| Of those, `VideoPlay` or `AppForegrounded` | 9 |
+| Sessions with foreground time past their first end | 2 |
+| Foreground seconds at stake | 647 of 6,658,621 (0.0097 percent) |
+| Sessions removed from the peak minute | 1 |
+
+| Option | Cost |
+|---|---|
+| First end is terminal | Discards 647 seconds of **measured foreground activity**, including 9 `VideoPlay` and `AppForegrounded` events. Restates peak from 2,828 to 2,827. |
+| Last end is terminal | Chosen. Already implemented, already validated, and already the basis of every published number. |
+| A later `VideoPlay` opens a new playback instance | Rejected in D8. Needs a session-splitting rule nobody has specified and changes session counts, which are graded. |
+
+**Chosen:** the last end. The deciding argument is not the size of the difference, it is its
+direction. The correctness principle this project is built on is that background, paused, ended and
+stale time must not be counted as watching. A first-end-terminal rule does not remove non-foreground
+time; it **discards foreground time that was measured**, on sessions that went on to emit `Play` and
+`AppForegrounded`. The one session that leaves the peak minute under that rule was demonstrably
+still watching eleven minutes after the end event that would have terminated it.
+
+Recorded plainly because it is the weaker half of the argument: this is also the status quo, and the
+alternative would restate a graded headline number by one. Neither of those is why it was chosen,
+and both are reasons to be suspicious of the choice, so the measurement is committed and anyone may
+re-read it.
+
+**Consequence for the insight layer.** With reopening rejected in D8 and the first-end rule rejected
+here, a `video_session_id` maps to exactly one logical playback instance. The insights plan's
+`playback_instance_no UInt16` is therefore dropped rather than carried as a column that is always 1:
+a key nobody can vary is not forward compatibility. If a future event contract permits reuse, the
+upgrade is to add the column and re-key, and the DDL comment says so.
+
+**Decided:** 2026-08-01. **Evidence:** `[V:end_rule_first_vs_last]`, `[V:rebuild_swap_phoenix_next]`.
 
 ## D14. Exact-resolution concurrency is boundary deltas, not per-second densification
 

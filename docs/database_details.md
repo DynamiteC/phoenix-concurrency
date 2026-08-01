@@ -94,12 +94,11 @@ later.
 Two, as of the 2026-08-01 cleanup:
 
 ```
-phoenix    the real one: validated corpus + live ingest      12 tables, 27.60 MiB
-default    ClickStack's OpenTelemetry schema, written by
-           the HyperDX collector, see clickstack.md          12 tables, 64.58 KiB
+phoenix        the real one: validated corpus + live ingest  12 tables, 27.60 MiB
+phoenix_next   generation-2 replica carrying the insight layer
 ```
 
-Plus the ClickHouse-supplied `system`, `information_schema` and `INFORMATION_SCHEMA`.
+Plus the ClickHouse-supplied `system`, `information_schema`, `INFORMATION_SCHEMA`, and `default` (ClickStack's OpenTelemetry schema).
 
 `phoenix` now holds **exactly** the 12 objects `sql/schema/` defines, with nothing else. That was
 not true before the cleanup, and the discrepancy is worth naming because it is the failure mode this
@@ -118,7 +117,12 @@ miss rather than a loss.
 | `phoenix_scratch_openday` | `scripts/open_session_demo.sh` |
 | `phoenix_open_test`, `phoenix_open_truth` | `scripts/test_open_sessions.sh` |
 | `phoenix_scratch_keyorder` | `scripts/key_order_experiment.sh` |
-| `phoenix_next` | `scripts/rebuild_swap.sh` |
+| `phoenix_next` | `scripts/rebuild_swap.sh`, since renamed `phoenix_rebuild` (D9 amendment) |
+
+**The name `phoenix_next` has since been reassigned.** It is now the generation-2 database: a
+replica of `phoenix` carrying the insight layer, durable rather than scratch. `rebuild_swap.sh`
+drops its shadow twice per run, so its default moved to `phoenix_rebuild` before the two could
+collide. Anything below describing `phoenix_next` as a scratch database is history.
 
 `phoenix_next` was the odd one out and got an explicit decision rather than a sweep.
 `rebuild_swap.sh --keep-shadow` leaves the **previous** derived tables there after a swap, so it

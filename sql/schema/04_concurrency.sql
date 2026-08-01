@@ -40,7 +40,16 @@ CREATE TABLE IF NOT EXISTS session_minute_runs
     -- grow is re-derived by writing -1 rows for what it had and +1 rows for what it has
     -- now. The delta MV multiplies by sign, so the serving layer absorbs the correction
     -- as two more additive rows. No mutation, no rebuild, no recompute of other sessions.
-    sign             Int8 DEFAULT 1
+    sign             Int8 DEFAULT 1,
+
+    -- FOUND LIVE, ABSENT FROM THIS FILE until now. phoenix.session_minute_runs carries this
+    -- index; nothing in the repo created it, so it came from an out-of-band ALTER. That made
+    -- rebuild_swap.sh a live hazard: it builds the shadow from THIS file and then EXCHANGEs
+    -- the tables into phoenix, so the next rebuild would have silently deleted the index from
+    -- production, and the shadow verify (closure, overshoot, row counts) would not have
+    -- noticed. Declared here so the repo and the server agree and scripts/schema_drift.sh
+    -- keeps them that way.
+    INDEX idx_run_range (run_start, run_end) TYPE minmax GRANULARITY 4
 )
 ENGINE = CollapsingMergeTree(sign)
 ORDER BY (video_session_id, run_start, run_end);

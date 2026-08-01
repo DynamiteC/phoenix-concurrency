@@ -69,5 +69,11 @@ ORDER BY provisional_seconds DESC, video_session_id
 -- That is the honest cost of the question and it is why this query is not on the dashboard
 -- refresh path. It is a drill-down: run it when someone asks what is still open, not every
 -- two seconds behind a live chart.
+-- max_execution_time is a wall-clock ceiling, and timeout_before_checking_execution_speed = 0 is
+-- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
+-- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
+-- what a query SCANS and says nothing about how long it may run.
 SETTINGS max_rows_to_read = 2716674,
-         max_bytes_to_read = 415749357;
+         max_bytes_to_read = 415749357,
+         max_execution_time = 30,
+         timeout_before_checking_execution_speed = 0;

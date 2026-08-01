@@ -26,7 +26,10 @@ cd "$(dirname "$0")/.."
 . scripts/lib/evidence.sh
 
 LIVE="${LIVE_DB:-phoenix}"
-SHADOW="${SHADOW_DB:-phoenix_next}"
+# The shadow is DROPped at the start and again at the end of every run, so its name must not
+# collide with anything durable. It used to default to phoenix_next, which is now the
+# next-generation database holding the insight layer: one rebuild would have wiped it.
+SHADOW="${SHADOW_DB:-phoenix_rebuild}"
 DERIVED=(foreground_intervals session_minute_runs concurrency_deltas user_minute_runs user_concurrency_deltas)
 
 ch() { ./scripts/ch.sh "$@" 2>/dev/null; }

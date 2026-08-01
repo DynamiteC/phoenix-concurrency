@@ -9,3 +9,10 @@ dist
 .venv
 .dual-graph/
 .idea/
+.derive_watermark.*
+.derive_watermark.*.lock
+derive_tick.*.log
+
+# Local ingest cursor: which synthetic sessions are still alive. Runtime state, like
+# .derive_watermark.*, and meaningless on another machine.
+.ingest_arrivals.*
