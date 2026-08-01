@@ -14,7 +14,7 @@ const OPTIONS: { id: Mode | 'compare'; label: string; hint: string }[] = [
   {id: 'compare', label: 'Compare', hint: 'both, overlaid'},
 ]
 
-/** Console-style toggle bank, not a soft tab strip — each option reads as a physically thrown switch. */
+/** Console-style toggle bank, not a soft tab strip, each option reads as a physically thrown switch. */
 export default function ModeSwitch({mode, onChange}: Props) {
   return (
     <div className={styles.bank} role="tablist" aria-label="Concurrency mode">

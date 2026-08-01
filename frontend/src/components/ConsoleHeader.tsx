@@ -25,11 +25,11 @@ export default function ConsoleHeader({status, error}: Props) {
           {error ? 'signal lost' : 'live'}
         </div>
         <div className={styles.metric}>
-          <span className={styles.metricValue}>{status ? nf.format(status.events) : '—'}</span>
+          <span className={styles.metricValue}>{status ? nf.format(status.events) : '--'}</span>
           <span className="mono-label">events ingested</span>
         </div>
         <div className={styles.metric}>
-          <span className={styles.metricValue}>{status?.latest?.slice(0, 16) ?? '—'}</span>
+          <span className={styles.metricValue}>{status?.latestEvent?.slice(0, 16) ?? '--'}</span>
           <span className="mono-label">latest event, UTC</span>
         </div>
       </div>

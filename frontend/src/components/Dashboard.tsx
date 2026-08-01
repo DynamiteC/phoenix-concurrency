@@ -1,7 +1,7 @@
 'use client'
 
 import {useEffect, useRef, useState} from 'react'
-import type {ConcurrencyResponse, DimensionValue, Filters, Mode, StatusResponse} from '@/lib/types'
+import type {ConcurrencyResponse, DimensionValue, ClientFilters, Mode, StatusResponse} from '@/lib/types'
 import ConsoleHeader from './ConsoleHeader'
 import FilterRail, {type RangeOption, type RefreshOption} from './FilterRail'
 import ModeSwitch from './ModeSwitch'
@@ -10,7 +10,7 @@ import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
 import styles from './Dashboard.module.css'
 
-const EMPTY_FILTERS: Filters = {
+const EMPTY_FILTERS: ClientFilters = {
   platform: '',
   country: '',
   video_type: '',
@@ -35,11 +35,11 @@ function toChTimestamp(d: Date): string {
 /** The window is relative to the data's own clock, not the wall clock: during a replay the
  *  data is "now" even though its timestamps are historical. */
 function windowFor(range: RangeOption, status: StatusResponse | null): { from: string; to: string } {
-  if (!status?.latest) return {from: '2000-01-01 00:00:00', to: '2100-01-01 00:00:00'}
-  const end = toUtcDate(status.latest)
+  if (!status?.frozenLatest) return {from: '2000-01-01 00:00:00', to: '2100-01-01 00:00:00'}
+  const end = toUtcDate(status.frozenLatest)
   const to = toChTimestamp(new Date(end.getTime() + 60_000))
   if (range === 'all') {
-    const from = status.earliest ? toChTimestamp(toUtcDate(status.earliest)) : '2000-01-01 00:00:00'
+    const from = status.frozenEarliest ? toChTimestamp(toUtcDate(status.frozenEarliest)) : '2000-01-01 00:00:00'
     return {from, to}
   }
   const hours = Number(range)
@@ -47,7 +47,7 @@ function windowFor(range: RangeOption, status: StatusResponse | null): { from: s
   return {from, to}
 }
 
-async function fetchConcurrency(path: string, filters: Filters): Promise<ConcurrencyResponse> {
+async function fetchConcurrency(path: string, filters: ClientFilters): Promise<ConcurrencyResponse> {
   const qs = new URLSearchParams()
   if (filters.platform) qs.set('platform', filters.platform)
   if (filters.country) qs.set('country', filters.country)
@@ -64,7 +64,7 @@ async function fetchConcurrency(path: string, filters: Filters): Promise<Concurr
 
 export default function Dashboard() {
   const [dims, setDims] = useState<DimensionValue[]>([])
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS)
   const [range, setRange] = useState<RangeOption>('24')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
   const [mode, setMode] = useState<Mode | 'compare'>('sessions')
@@ -77,7 +77,7 @@ export default function Dashboard() {
 
   const timerRef = useRef<ReturnType<typeof setInterval>>()
 
-  // Filter dropdown values, fetched once — the dimension set does not change while the
+  // Filter dropdown values, fetched once, the dimension set does not change while the
   // dashboard is open.
   useEffect(() => {
     fetch('/api/dimensions')
@@ -96,7 +96,7 @@ export default function Dashboard() {
         if (cancelled) return
         setStatus(s)
         const {from, to} = windowFor(range, s)
-        const withWindow: Filters = {...filters, from_ts: from, to_ts: to}
+        const withWindow: ClientFilters = {...filters, from_ts: from, to_ts: to}
 
         const wantSessions = mode === 'sessions' || mode === 'compare'
         const wantUsers = mode === 'users' || mode === 'compare'
@@ -169,15 +169,26 @@ export default function Dashboard() {
                 accent={accent}
                 size="lg"
               />
-              <StatReadout label="average" value={nf.format(Math.round(primary.avgConcurrency))}/>
+              {/* BOTH averages, each labelled with its own denominator. The right denominator
+                  is a definition choice and the graded ground truth is private, so showing one
+                  number and calling it "the average" hides the choice rather than making it. */}
+              <StatReadout
+                label={`average, all ${nf.format(primary.minutesInRange)} min`}
+                value={primary.avgConcurrency.toFixed(2)}
+                accent={accent}
+              />
+              <StatReadout
+                label={`average, ${nf.format(primary.minutesWithAudience)} active min`}
+                value={primary.avgActiveMinutes.toFixed(2)}
+              />
               <StatReadout label="p95" value={nf.format(Math.round(primary.p95Concurrency))}/>
-              <StatReadout label="peak minute" value={primary.peakMinute.slice(0, 16) || '—'}/>
+              <StatReadout label="peak minute" value={primary.peakMinute.slice(0, 16) || '--'}/>
               <StatReadout
                 label={mode === 'users' ? 'users reached in window' : 'sessions reached in window'}
                 value={nf.format(primary.reach)}
               />
               <StatReadout label="query latency" value={`${primary.ms} ms`}/>
-              <StatReadout label="rows read" value={primary.rowsRead != null ? nf.format(primary.rowsRead) : '—'}/>
+              <StatReadout label="rows read" value={primary.rowsRead != null ? nf.format(primary.rowsRead) : '--'}/>
             </div>
           )}
 

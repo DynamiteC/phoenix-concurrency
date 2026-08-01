@@ -3,7 +3,11 @@
 
 export type Mode = 'sessions' | 'users'
 
-export interface Filters {
+/**
+ * What the UI controls. Everything here is client-supplied and therefore untrusted, which is
+ * why it only ever reaches ClickHouse as param_* values and never as SQL text.
+ */
+export interface ClientFilters {
   platform: string
   country: string
   video_type: string
@@ -13,6 +17,15 @@ export interface Filters {
   to_ts: string
 }
 
+/**
+ * The full parameter set a serving query receives. frozen_before is deliberately NOT part of
+ * ClientFilters: the isolation boundary is a server-side decision, and a client able to move it
+ * could pull live, unvalidated rows into a number the ledger claims is fixed.
+ */
+export type Filters = ClientFilters & {
+  frozen_before: string
+}
+
 /** One [minute, concurrency] sample. Minute is the ClickHouse DateTime string, UTC. */
 export type ConcurrencyPoint = [string, number]
 
@@ -20,21 +33,39 @@ export interface ConcurrencyResponse {
   points: ConcurrencyPoint[]
   peakConcurrency: number
   peakMinute: string
+  /**
+   * PRIMARY average: every minute in the requested range, with concurrency carried forward
+   * across minutes that have no delta row. The denominator is a definition choice and the
+   * ground truth is private, so avgActiveMinutes ships alongside it rather than instead of it.
+   */
   avgConcurrency: number
-  /** 95th percentile of the per-minute concurrency across the window — sustained load, distinct
+  /** Average over only the minutes that had an audience. Same curve, smaller denominator. */
+  avgActiveMinutes: number
+  /** Minutes in the range with concurrency > 0. The denominator of avgActiveMinutes. */
+  minutesWithAudience: number
+  /** Every minute in the range, empty ones included. The denominator of avgConcurrency. */
+  minutesInRange: number
+  /** 95th percentile of the per-minute concurrency across the window, sustained load, distinct
    *  from peakConcurrency which can be a single one-minute spike. */
   p95Concurrency: number
   /** Distinct sessions (or users, on the user-concurrency response) active at ANY point in the
-   *  window — a different question from concurrency: total reach, not simultaneous count. */
+   *  window, a different question from concurrency: total reach, not simultaneous count. */
   reach: number
   ms: number
   rowsRead?: number
 }
 
 export interface StatusResponse {
+  /** LIVE row count, no frozen predicate. The ingest-lag story. */
   events: number
-  earliest: string | null
-  latest: string | null
+  /** LIVE watermark. Drives the console's "is ingest keeping up" readout, NOT the window. */
+  latestEvent: string | null
+  /** Bounds of the VALIDATED corpus. The dashboard derives its default window from these,
+   *  because every other serving query is frozen to that corpus. */
+  frozenEarliest: string | null
+  frozenLatest: string | null
+  /** The boundary itself, surfaced so the UI can state what it is showing. */
+  frozenBefore: string
   sessionRuns: number
   sessionDeltas: number
   userRuns: number

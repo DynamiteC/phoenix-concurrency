@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------------------------
-   Signal Room — an industrial broadcast-control-room console, not a SaaS dashboard.
+   Signal Room: an industrial broadcast-control-room console, not a SaaS dashboard.
    Near-black chassis, phosphor amber + signal orange, hairline oscilloscope grids, corner-tick
    framing on every panel like rack-mounted instruments. Condensed display type for headlines,
    tabular mono for every number.
@@ -52,7 +52,7 @@ body {
   isolation: isolate;
 }
 
-/* Atmosphere: a faint vignette, a grain texture, and a slow scanline sweep — layered behind
+/* Atmosphere: a faint vignette, a grain texture, and a slow scanline sweep, layered behind
    everything, never intercepting pointer events. */
 body::before,
 body::after {

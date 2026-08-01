@@ -1,7 +1,7 @@
 // Talks to the ClickHouse HTTP interface directly, the same contract demo/server.js uses:
 // POST the fixed SQL text, pass all user-controlled values as `param_*` query-string
 // parameters (never string-built into the SQL), read back JSONCompact. SQL text lives inline
-// in each route handler (see src/app/api/*/route.ts) — self-contained, no read from ../sql.
+// in each route handler (see src/app/api/*/route.ts), self-contained, no read from ../sql.
 import {CH_HOST, CH_PORT, CH_USER, CH_PASSWORD, CH_DATABASE} from './env'
 
 interface JSONCompactResult {
@@ -12,7 +12,7 @@ interface JSONCompactResult {
 
 export async function chQuery<P extends object>(sql: string, params: P = {} as P): Promise<JSONCompactResult> {
   if (!CH_HOST) {
-    throw new Error('CH_HOST is not set — copy .env.example to ../.env and fill in ClickHouse Cloud credentials')
+    throw new Error('CH_HOST is not set, copy .env.example to ../.env and fill in ClickHouse Cloud credentials')
   }
   const qs = new URLSearchParams({
     database: CH_DATABASE,

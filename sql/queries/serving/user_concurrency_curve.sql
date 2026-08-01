@@ -124,6 +124,10 @@ SELECT
     -- aggregate function named round, which does not exist.
     round(avg(concurrency) OVER (), 2) AS avg_all_minutes,
     round(avgIf(concurrency, concurrency > 0) OVER (), 2) AS avg_active_minutes,
+    -- p95 on the DENSE series, for the same reason the average is. See the matching note in
+    -- serving/concurrency_curve.sql: "peak is immune" covers max only, and the quiet minutes
+    -- that pull the 95th percentile down are precisely the rows a sparse read omits.
+    quantileExact(0.95)(concurrency) OVER () AS p95_concurrency,
     countIf(concurrency > 0) OVER () AS minutes_with_audience,
     count() OVER () AS minutes_in_range
 FROM dense
