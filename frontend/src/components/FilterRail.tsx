@@ -2,6 +2,7 @@
 
 import {useState} from 'react'
 import type {DimensionValue, ClientFilters} from '@/lib/types'
+import type {Grain} from '@/lib/grain'
 import styles from './FilterRail.module.css'
 
 // Numeric options are hours back from the latest ingested minute. '0.25' is the live window:
@@ -24,6 +25,10 @@ interface Props {
    *  selectable), only shown as an explanatory hint, since every range option (relative or custom)
    *  resolves against this same watermark server-side. */
   boundsMax?: string
+  /** Curve resolution. Bucketing happens client-side on the minute series, so changing this
+   *  issues no query and cannot move the peak/average readouts. */
+  grain: Grain
+  onGrainChange: (g: Grain) => void
   refreshMs: RefreshOption
   onRefreshChange: (ms: RefreshOption) => void
   /** Timestamp (Date.now()) of the last refresh tick, keys the countdown bar so it restarts
@@ -49,6 +54,8 @@ export default function FilterRail({
                                      customTo,
                                      onCustomToChange,
                                      boundsMax,
+                                     grain,
+                                     onGrainChange,
                                      refreshMs,
                                      onRefreshChange,
                                      lastTickAt,
@@ -176,6 +183,20 @@ export default function FilterRail({
             />
           </>
         )}
+
+        <label className="mono-label" htmlFor="grain">
+          Time grain
+        </label>
+        <select
+          id="grain"
+          className={styles.select}
+          value={grain}
+          onChange={(e) => onGrainChange(e.target.value as Grain)}
+        >
+          <option value="minute">minute</option>
+          <option value="hour">hour</option>
+          <option value="day">day</option>
+        </select>
 
         <label className="mono-label" htmlFor="refresh">
           Auto refresh

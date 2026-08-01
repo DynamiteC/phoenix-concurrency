@@ -44,6 +44,18 @@ export function istTime(chTimestamp: string | null | undefined): string {
   return timeOnly.format(toUtcDate(chTimestamp))
 }
 
+const dateOnly = new Intl.DateTimeFormat('en-IN', {
+  timeZone: IST,
+  day: '2-digit',
+  month: 'short',
+})
+
+/** "01 Aug". For day-grain axis ticks, where a time-of-day would read 12:00 am on every one. */
+export function istDate(chTimestamp: string | null | undefined): string {
+  if (!chTimestamp) return 'n/a'
+  return dateOnly.format(toUtcDate(chTimestamp))
+}
+
 /** datetime-local input value ("YYYY-MM-DDTHH:mm") in IST wall-clock terms, and back. The picker
  *  is unlabelled-local by nature, so both directions go through IST to keep what the viewer types
  *  consistent with what every other timestamp on the page shows. */

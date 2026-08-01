@@ -2,7 +2,8 @@
 
 import {useRef, useState} from 'react'
 import type {ConcurrencyPoint} from '@/lib/types'
-import {istDateTime, istTime} from '@/lib/time'
+import {istDate, istDateTime, istTime} from '@/lib/time'
+import type {Grain} from '@/lib/grain'
 import styles from './ConcurrencyChart.module.css'
 
 export interface ChartSeries {
@@ -18,6 +19,9 @@ export interface ChartSeries {
 
 interface Props {
   series: ChartSeries[]
+  /** Only affects how an axis tick is written: a day-grain tick rendered as a time reads
+   *  "12:00 am" on every one of them. The points themselves are bucketed before they get here. */
+  grain: Grain
 }
 
 const W = 1000
@@ -48,7 +52,7 @@ function pathFor(points: ConcurrencyPoint[], n: number, max: number): string {
  * and a hover crosshair with a tooltip that reads BOTH series at once: the exact minute-by-
  * minute divergence Compare mode exists to show, not just the implied gap between two shapes.
  */
-export default function ConcurrencyChart({series}: Props) {
+export default function ConcurrencyChart({series, grain}: Props) {
   const nf = new Intl.NumberFormat('en-IN')
   const svgRef = useRef<SVGSVGElement>(null)
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -228,7 +232,7 @@ export default function ConcurrencyChart({series}: Props) {
                 y={H - 6}
                 textAnchor={frac === 0 ? 'start' : frac === 1 ? 'end' : 'middle'}
               >
-                {istTime(label)}
+                {grain === 'day' ? istDate(label) : istTime(label)}
               </text>
             )
           })}

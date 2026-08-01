@@ -3,6 +3,7 @@
 import {useEffect, useRef, useState} from 'react'
 import type {ConcurrencyResponse, DimensionValue, ClientFilters, Mode, StatusResponse} from '@/lib/types'
 import {istDateTime, istInputToUtc, utcToIstInput} from '@/lib/time'
+import {bucketPoints, type Grain} from '@/lib/grain'
 import ConsoleHeader from './ConsoleHeader'
 import FilterRail, {type RangeOption, type RefreshOption} from './FilterRail'
 import ModeSwitch from './ModeSwitch'
@@ -105,6 +106,7 @@ export default function Dashboard() {
   const [range, setRange] = useState<RangeOption>('3')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [grain, setGrain] = useState<Grain>('minute')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
   const [mode, setMode] = useState<Mode | 'compare' | 'open'>('sessions')
 
@@ -185,7 +187,7 @@ export default function Dashboard() {
     series.push({
       label: 'Sessions',
       color: 'var(--signal)',
-      points: sessionData.points,
+      points: bucketPoints(sessionData.points, grain),
       avg: sessionData.avgConcurrency,
       p95: sessionData.p95Concurrency,
       peakMinute: sessionData.peakMinute,
@@ -195,7 +197,7 @@ export default function Dashboard() {
     series.push({
       label: 'Users',
       color: 'var(--cool)',
-      points: userData.points,
+      points: bucketPoints(userData.points, grain),
       avg: userData.avgConcurrency,
       p95: userData.p95Concurrency,
       peakMinute: userData.peakMinute,
@@ -220,6 +222,8 @@ export default function Dashboard() {
           customTo={customTo}
           onCustomToChange={setCustomTo}
           boundsMax={status?.frozenLatest ? toInputValue(status.frozenLatest) : undefined}
+          grain={grain}
+          onGrainChange={setGrain}
           refreshMs={refreshMs}
           onRefreshChange={setRefreshMs}
           lastTickAt={lastTickAt}
@@ -315,7 +319,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {mode !== 'open' && <ConcurrencyChart series={series}/>}
+          {mode !== 'open' && <ConcurrencyChart series={series} grain={grain}/>}
 
           {mode !== 'open' && (
           <footer className={styles.footnote}>
@@ -324,6 +328,12 @@ export default function Dashboard() {
             running sum of per-minute +1/&minus;1 rows, never recomputed from session history. Peak is
             evaluated after every filter is applied, because a platform slice and a platform+country
             slice peak at different minutes.
+            {grain !== 'minute' && (
+              <> The curve is drawn at <b>{grain}</b> grain, each bucket carrying the peak of the
+                minutes inside it, so its highest point still equals the peak above. The readouts
+                are unchanged by grain: they are computed over the dense minute series, which is
+                the only denominator that gives a correct average.</>
+            )}
           </footer>
           )}
         </main>
