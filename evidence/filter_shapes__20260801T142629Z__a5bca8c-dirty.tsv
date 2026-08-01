@@ -1,0 +1,28 @@
+# evidence: filter_shapes
+# what: read_rows, read_bytes, marks, parts and EXPLAIN key condition per filter shape, cold and warm
+# run_utc: 2026-08-01 14:26:29
+# git: a5bca8c-dirty
+# host: ss-cric
+# row_count: 960851
+# event_watermark: 2026-08-01 13:20:21.559
+# frozen_before: 2026-08-01
+# frozen_slice_rows: 905558   (event_timestamp < frozen_before, the validated corpus)
+# ingest_watermark: 2026-08-01 14:26:29   (NOT REPRODUCIBLE, see below)
+# ingest_watermark_warning: ingested_at was added by ALTER after the July rows were loaded.
+#   ClickHouse does not rewrite existing parts, so for those 905,558 rows the DEFAULT now()
+#   is evaluated AT READ TIME and the column equals the wall clock of whichever query reads
+#   it. Proven in evidence/ingested_at_nondeterminism. Do not filter on it.
+shape	cold_ms	warm_ms	read_rows	read_bytes	selected_marks	selected_parts	memory_bytes	key_condition
+unfiltered	11	10	24928	199424	3	1	1156022	(minute in (-Inf, 1785542399]) ; granules 3/3
+platform	11	11	16384	147533	2	1	1235166	and((minute in (-Inf, 1785542399]), (platform in ['ANDROID_PHONE', 'ANDROID_PHONE'])) ; granules 2/3
+country	11	11	24928	224373	3	1	1316923	and((minute in (-Inf, 1785542399]), (country in ['india', 'india'])) ; granules 3/3
+content	12	11	24928	398848	3	1	1044540	and((minute in (-Inf, 1785542399]), (content_id in [2078157818, 2078157818])) ; granules 3/3
+video_type	11	11	24928	224383	3	1	1295030	and((minute in (-Inf, 1785542399]), (video_type in ['vod', 'vod'])) ; granules 3/3
+app_version	11	11	24928	225267	3	1	1204280	and((minute in (-Inf, 1785542399]), (app_version in ['6.34.8', '6.34.8'])) ; granules 3/3
+platform+country	11	11	16384	163938	2	1	1394947	and((minute in (-Inf, 1785542399]), and((country in ['india', 'india']), (platform in ['ANDROID_PHONE', 'ANDROID_PHONE']))) ; granules 2/3
+content+platform	11	11	16384	278605	2	1	1202508	and((minute in (-Inf, 1785542399]), and((content_id in [2078157818, 2078157818]), (platform in ['ANDROID_PHONE', 'ANDROID_PHONE']))) ; granules 2/3
+#
+# window	2026-07-26 00:00:00 -> 2026-07-27 00:00:00
+# query	sql/queries/serving/peak_average.sql
+# use_query_cache	0
+# service	26.2.1.525

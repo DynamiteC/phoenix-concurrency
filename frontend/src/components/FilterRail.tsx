@@ -1,6 +1,6 @@
 'use client'
 
-import type {DimensionValue, Filters} from '@/lib/types'
+import type {DimensionValue, ClientFilters} from '@/lib/types'
 import styles from './FilterRail.module.css'
 
 export type RangeOption = '3' | '24' | 'all'
@@ -8,13 +8,13 @@ export type RefreshOption = 0 | 5000 | 10000 | 30000 | 60000 | 300000
 
 interface Props {
   dims: DimensionValue[]
-  filters: Filters
-  onFiltersChange: (next: Filters) => void
+  filters: ClientFilters
+  onFiltersChange: (next: ClientFilters) => void
   range: RangeOption
   onRangeChange: (r: RangeOption) => void
   refreshMs: RefreshOption
   onRefreshChange: (ms: RefreshOption) => void
-  /** Timestamp (Date.now()) of the last refresh tick — keys the countdown bar so it restarts
+  /** Timestamp (Date.now()) of the last refresh tick, keys the countdown bar so it restarts
    *  every cycle instead of drifting out of sync with the actual fetch interval. */
   lastTickAt: number
 }

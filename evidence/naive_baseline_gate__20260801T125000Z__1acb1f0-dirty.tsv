@@ -1,0 +1,13 @@
+# evidence: naive_baseline_gate
+# what: range/balance gate before the naive-vs-corrected comparison
+# run_utc: 2026-08-01 12:50:00
+# git: 1acb1f0-dirty
+# host: ss-cric
+metric	value
+gate	FAIL
+reason	the two tables do not span the same range, the comparison would be invalid
+naive_sum_delta	0
+naive_min_minute	2026-07-14 15:43:00
+naive_max_minute	2026-07-26 11:31:00
+corrected_min_minute	2026-07-14 15:43:00
+corrected_max_minute	2026-07-26 11:32:00

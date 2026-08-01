@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS content
     content_id Int64,
     title      String,
     video_type LowCardinality(String),
-    category   LowCardinality(String)
+    category   LowCardinality(String),
+    ingested_at DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree
 ORDER BY content_id;

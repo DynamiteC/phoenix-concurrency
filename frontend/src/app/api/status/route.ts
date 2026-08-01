@@ -1,37 +1,36 @@
-// What the pipeline has ingested so far: lets the console show ingestion keeping up (or a
-// replay in progress) and gives the UI real earliest/latest bounds for the "all of data" range,
-// instead of ever sending a pathological 2000-2100 window to the curve queries.
+// What the pipeline has ingested: drives the console's live indicator and the dashboard's
+// default time window. Query text lives in sql/queries/serving/ingest_status.sql, which
+// explains why this route reports the live watermark and the frozen-corpus bounds separately.
 import {NextResponse} from 'next/server'
 import {chQuery} from '@/lib/clickhouse'
+import {FROZEN_BEFORE} from '@/lib/env'
+import {columnReader, servingSql} from '@/lib/sql'
 import type {ApiError, StatusResponse} from '@/lib/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SQL = `
-SELECT
-    (SELECT count() FROM raw_events)              AS events,
-    (SELECT min(event_timestamp) FROM raw_events)  AS earliest,
-    (SELECT max(event_timestamp) FROM raw_events)  AS latest,
-    (SELECT sum(sign) FROM session_minute_runs)    AS session_runs,
-    (SELECT count() FROM concurrency_deltas)       AS session_deltas,
-    (SELECT sum(sign) FROM user_minute_runs)       AS user_runs,
-    (SELECT count() FROM user_concurrency_deltas)  AS user_deltas
-`
-
 export async function GET(): Promise<NextResponse<StatusResponse | ApiError>> {
   const t0 = Date.now()
   try {
-    const result = await chQuery(SQL, {})
-    const row = result.data[0] || []
+    const result = await chQuery(servingSql('ingest_status.sql'), {frozen_before: FROZEN_BEFORE})
+    const row = result.data[0]
+    if (!row) throw new Error('ingest_status.sql returned no rows')
+    const col = columnReader(result.meta)
+    const str = (name: string): string | null => {
+      const v = col(row, name)
+      return v != null ? String(v) : null
+    }
     const body: StatusResponse = {
-      events: Number(row[0] ?? 0),
-      earliest: row[1] != null ? String(row[1]) : null,
-      latest: row[2] != null ? String(row[2]) : null,
-      sessionRuns: Number(row[3] ?? 0),
-      sessionDeltas: Number(row[4] ?? 0),
-      userRuns: Number(row[5] ?? 0),
-      userDeltas: Number(row[6] ?? 0),
+      events: Number(col(row, 'events') ?? 0),
+      latestEvent: str('latest_event'),
+      frozenEarliest: str('frozen_earliest'),
+      frozenLatest: str('frozen_latest'),
+      frozenBefore: FROZEN_BEFORE,
+      sessionRuns: Number(col(row, 'session_runs') ?? 0),
+      sessionDeltas: Number(col(row, 'session_deltas') ?? 0),
+      userRuns: Number(col(row, 'user_runs') ?? 0),
+      userDeltas: Number(col(row, 'user_deltas') ?? 0),
       ms: Date.now() - t0,
     }
     return NextResponse.json(body)

@@ -21,7 +21,13 @@ CREATE TABLE IF NOT EXISTS raw_events
     audio_language      LowCardinality(String),
     subtitle_language   LowCardinality(String),
     player_version      LowCardinality(String),
-    session_start_epoch DateTime64(3)
+    session_start_epoch DateTime64(3),
+    -- Wall-clock arrival, distinct from event_timestamp. Lateness is (ingested_at -
+    -- event_timestamp), which is what sizes the re-derive lookback window. DEFAULT rather
+    -- than a column the ingest script supplies: raw_events_mv selects an explicit column
+    -- list, so the default fires on every MV-inserted row and an ingest script physically
+    -- cannot forget it.
+    ingested_at         DateTime DEFAULT now()
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(event_timestamp)

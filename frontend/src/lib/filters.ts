@@ -1,3 +1,4 @@
+import {FROZEN_BEFORE} from './env'
 import type {Filters} from './types'
 
 /**
@@ -16,5 +17,10 @@ export function parseFilters(searchParams: URLSearchParams): Filters {
     content_id: Number(searchParams.get('content_id') || 0) || 0,
     from_ts: searchParams.get('from') || '2000-01-01 00:00:00',
     to_ts: searchParams.get('to') || '2100-01-01 00:00:00',
+    // NOT client-controllable. The serving queries take frozen_before as a parameter, and the
+    // previous version of this app deleted the predicate from its inlined SQL instead of
+    // supplying the parameter, which quietly pointed the dashboard at live-contaminated rows.
+    // Server-side and fixed, so what the dashboard reports equals what evidence/ measured.
+    frozen_before: FROZEN_BEFORE,
   }
 }

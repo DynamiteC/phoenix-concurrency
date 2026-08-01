@@ -30,12 +30,17 @@ WITH
             any(platform)   AS platform,
             any(country)    AS country,
             ts,
-            min(cls)        AS cls
+            min(cls)        AS cls,
+            -- Tracked separately from cls because cls conflates VideoSessionEnd with
+            -- AppBackgrounded, VideoError and the pause family, and only a session END bounds
+            -- the session. A backgrounded app can come back; an ended session cannot.
+            max(is_end)     AS is_end
         FROM
         (
             SELECT
                 video_session_id, user_id, content_id, platform, country,
                 event_timestamp AS ts,
+                event_type = 'VideoSessionEnd' AS is_end,
                 multiIf(
                     event_type IN ('AppBackgrounded', 'VideoSessionEnd', 'VideoError'), 0,
                     pause_off AND event_type = 'VideoHeartbeat'
@@ -56,7 +61,11 @@ WITH
             video_session_id, user_id, content_id, platform, country, ts,
             coalesce(argMax(cls, if(cls IS NULL, toDateTime64(0, 3), ts)) OVER (
                 PARTITION BY video_session_id ORDER BY ts ASC
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 1) AS is_open
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 1) AS is_open,
+            -- The session's LAST end, over the whole partition rather than a running frame: an
+            -- interval is bounded by the final end, not by whichever end happened to precede it.
+            -- Returns epoch 0 for a session with no end event, which segments below tests for.
+            maxIf(ts, is_end) OVER (PARTITION BY video_session_id) AS last_end
         FROM collapsed
     ),
     segments AS
@@ -70,7 +79,16 @@ WITH
             leadInFrame(ts) OVER (
                 PARTITION BY video_session_id ORDER BY ts ASC
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS next_ts,
-            least(if(next_ts > seg_start, next_ts, seg_start + tol), seg_start + tol) AS seg_end
+            last_end,
+            -- No segment may extend past the session's last VideoSessionEnd. A session that has
+            -- ended cannot accrue foreground time, and 385 intervals in the batch path did.
+            -- Derived independently here, on purpose: the oracle is the specification, so it
+            -- must state the rule rather than import the pipeline's version of it. Parity is
+            -- what then proves the two agree.
+            least(
+                least(if(next_ts > seg_start, next_ts, seg_start + tol), seg_start + tol),
+                if(last_end > toDateTime64(0, 3), last_end, toDateTime64('2100-01-01 00:00:00', 3))
+            ) AS seg_end
         FROM stated
     )
 SELECT
@@ -91,6 +109,9 @@ FROM
                             60)) AS minute
     FROM segments
     WHERE is_open = 1
+      -- An event at or after the last end opens nothing at all. Capping alone would leave a
+      -- zero-length segment per post-end event, and timeSlots still yields its minute.
+      AND (last_end = toDateTime64(0, 3) OR seg_start < last_end)
 )
 GROUP BY minute
 ORDER BY minute;

@@ -1,26 +1,20 @@
-// Distinct filter values for the four dimensions the serving layer is keyed on. Read from
-// concurrency_deltas (already deduplicated, tiny — 57 KiB per docs/ROADMAP.md) rather than
-// raw_events, which would mean scanning the full 905K-row table for a dropdown.
+// Distinct filter values for the four dimensions the serving layer is keyed on.
+// Query text lives in sql/queries/serving/dimension_values.sql.
 import {NextResponse} from 'next/server'
 import {chQuery} from '@/lib/clickhouse'
+import {FROZEN_BEFORE} from '@/lib/env'
+import {columnReader, servingSql} from '@/lib/sql'
 import type {ApiError, DimensionsResponse} from '@/lib/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SQL = `
-SELECT 'platform' AS dim, platform AS value FROM concurrency_deltas GROUP BY 1, 2
-UNION ALL SELECT 'country', country FROM concurrency_deltas GROUP BY 1, 2
-UNION ALL SELECT 'video_type', video_type FROM concurrency_deltas GROUP BY 1, 2
-UNION ALL SELECT 'app_version', app_version FROM concurrency_deltas GROUP BY 1, 2
-ORDER BY 1, 2
-`
-
 export async function GET(): Promise<NextResponse<DimensionsResponse | ApiError>> {
   try {
-    const result = await chQuery(SQL, {})
+    const result = await chQuery(servingSql('dimension_values.sql'), {frozen_before: FROZEN_BEFORE})
+    const col = columnReader(result.meta)
     const values = result.data
-      .map((row) => ({dim: String(row[0]), value: String(row[1])}))
+      .map((row) => ({dim: String(col(row, 'dim')), value: String(col(row, 'value'))}))
       .filter((v) => v.value !== '') as DimensionsResponse['values']
     return NextResponse.json({values})
   } catch (e) {
