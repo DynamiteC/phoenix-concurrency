@@ -1,13 +1,13 @@
 # evidence: runbook_validation
 # what: every number in docs/review/validation_runbook_filled.md not already covered by an existing artifact
-# run_utc: 2026-08-01 14:50:46
-# git: a0e4e7f-dirty
+# run_utc: 2026-08-01 14:54:08
+# git: 0ef547d-dirty
 # host: ss-cric
 # row_count: 960851
 # event_watermark: 2026-08-01 13:20:21.559
 # frozen_before: 2026-08-01
 # frozen_slice_rows: 905558   (event_timestamp < frozen_before, the validated corpus)
-# ingest_watermark: 2026-08-01 14:50:47   (NOT REPRODUCIBLE, see below)
+# ingest_watermark: 2026-08-01 14:54:08   (NOT REPRODUCIBLE, see below)
 # ingest_watermark_warning: ingested_at was added by ALTER after the July rows were loaded.
 #   ClickHouse does not rewrite existing parts, so for those 905,558 rows the DEFAULT now()
 #   is evaluated AT READ TIME and the column equals the wall clock of whichever query reads
@@ -31,6 +31,7 @@ test	metric	value
 17	invalid_intervals	385
 17	beyond_90s_tolerance	336
 17	offending_sessions	21
+17	overshoot_median_s	760
 17	overshoot_max_s	2171
 17	sessions_with_events_after_last_end	239
 17	peak_all_sessions	2829

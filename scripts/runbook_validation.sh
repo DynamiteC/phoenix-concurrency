@@ -75,13 +75,23 @@ q() { ./scripts/ch.sh --format TSVRaw --query "$1" 2>/dev/null | head -1; }
   printf '17\toffending_sessions\t%s\n' "$(q "$_se
     SELECT uniqExact(i.video_session_id) FROM foreground_intervals i
     INNER JOIN se e USING (video_session_id) WHERE e.session_end > 0 AND i.interval_end > e.session_end")"
+  # Median as well as max: the median is what says the effect on the AVERAGE will not be
+  # exactly zero, and that claim should not rest on an untagged number.
+  printf '17\tovershoot_median_s\t%s\n' "$(q "$_se
+    SELECT toUInt32(quantile(0.5)(dateDiff('second', e.session_end, i.interval_end))) FROM foreground_intervals i
+    INNER JOIN se e USING (video_session_id) WHERE e.session_end > 0 AND i.interval_end > e.session_end")"
   printf '17\tovershoot_max_s\t%s\n' "$(q "$_se
     SELECT max(dateDiff('second', e.session_end, i.interval_end)) FROM foreground_intervals i
     INNER JOIN se e USING (video_session_id) WHERE e.session_end > 0 AND i.interval_end > e.session_end")"
-  printf '17\tsessions_with_events_after_last_end\t%s\n' "$(q "$_se
-    SELECT countIf(last_any > session_end) FROM (SELECT video_session_id, session_end,
-      (SELECT max(event_timestamp) FROM raw_events r WHERE r.video_session_id = se.video_session_id
-       AND r.event_timestamp < {frozen_before:String}) AS last_any FROM se) WHERE session_end > 0")"
+  # One GROUP BY, not a correlated subquery per session: this service throws NOT_IMPLEMENTED
+  # on correlated expressions in a sorting step, and a form that silently returned something
+  # different would be worse than one that errors.
+  printf '17\tsessions_with_events_after_last_end\t%s\n' "$(q "
+    SELECT countIf(last_any > session_end) FROM (
+      SELECT video_session_id, maxIf(event_timestamp, event_type='VideoSessionEnd') AS session_end,
+             max(event_timestamp) AS last_any
+      FROM raw_events WHERE event_timestamp < {frozen_before:String} GROUP BY video_session_id)
+    WHERE session_end > 0")"
 
   # T17 impact. UPPER BOUND, not a measurement: excluding these 21 sessions removes their
   # legitimate pre-end viewing too, so the true damage is at most this difference.

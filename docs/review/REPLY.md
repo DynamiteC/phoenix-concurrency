@@ -13,7 +13,7 @@ Every expected value you supplied that we could compare against reproduced exact
 duplicates (8-9).
 
 Every number we measured for this review is committed to
-`evidence/runbook_validation__20260801T145046Z__a0e4e7f-dirty.tsv` and reproducible with
+`evidence/runbook_validation__20260801T145408Z__0ef547d-dirty.tsv` and reproducible with
 `./scripts/runbook_validation.sh`, so you can re-derive any figure below without taking our word
 for it.
 
