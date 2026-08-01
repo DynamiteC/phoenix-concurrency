@@ -68,19 +68,23 @@ cases that change an answer.
 ## 5. Derive
 
 ```bash
-export CH_DATABASE=phoenix_unseen
-./scripts/ch.sh --queries-file sql/pipeline/01_derive_intervals.sql \
-    --param_tolerance_s=90 --param_pause_inactive=1
-./scripts/ch.sh --queries-file sql/pipeline/02_merge_runs.sql
-./scripts/ch.sh --queries-file sql/pipeline/04_merge_user_runs.sql
+./scripts/derive.sh phoenix_unseen
 ```
 
-**Run each exactly once.** `02` and `04` assert `sign = +1` unconditionally and append. A
-second run appends duplicate runs that `SummingMergeTree` absorbs silently, with no error and
-no undo. If you are unsure whether a step ran, check step 6 rather than re-running it.
+Runs `01`, `02` and `04` in order and verifies the post-conditions.
 
-**If you must rebuild:** drop and recreate the database from step 2. That is the safe path and
-it takes about as long as the load.
+**It refuses if the database already holds asserted runs, and that refusal is load-bearing.**
+`02` and `04` assert `sign = +1` unconditionally and append, so a second run doubles every run
+and doubles concurrency. Measured: 17,604 runs to 35,208, peak 2,829 to 5,658.
+`[V:derive_idempotence]`
+
+**Neither closure nor `max_runs_per_session_minute` would notice.** Closure stays 0 because
+each duplicated `+1` brings its own `-1`; the overlap invariant stays 1 because the duplicate
+has an identical key. Only `max_assertions_of_one_run` moves, from 1 to 2. If you bypass the
+guard you are relying on an invariant that does not exist.
+
+To rebuild deliberately: `REBUILD=1 ./scripts/derive.sh phoenix_unseen`. It takes about
+2 seconds.
 
 ## 6. Verify, and read every number
 
@@ -95,6 +99,7 @@ FROZEN_BEFORE="$UNSEEN_DAY" CH_DATABASE=phoenix_unseen ./scripts/ground_state.sh
 | `invariant.closure.session_deltas` | 0 |
 | `invariant.closure.user_deltas` | 0 |
 | `invariant.max_runs_per_session_minute` | **1** |
+| `invariant.max_assertions_of_one_run` | **1** |
 | `serving.min_concurrency` | 0 |
 | `invariant.runs_inverted` | 0 |
 | `invariant.intervals_inverted` | 0 |

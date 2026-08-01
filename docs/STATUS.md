@@ -40,7 +40,7 @@ has not been started.
 | Item | State | Blocker | Owner |
 |---|---|---|---|
 | Frozen-slice stability gate at full `PASS` | 33 metrics, **0 differing lines**, verdict `PASS_BUT_INGEST_IDLE` | The replay loop stopped at 13:20:52, so 0 rows arrived during the run and the gate could not test stability *under* concurrent writes. Re-run `./scripts/frozen_gate.sh 120` during a live window and it upgrades itself with no code change. | ingest owner to start a run |
-| Derive-to-shadow-and-swap | Not built | Deprioritised against the graded read table and docs. The risk it addresses is real: `02_merge_runs.sql` and `04_merge_user_runs.sql` assert `sign = +1` unconditionally and append, so a second run silently doubles. **Mitigated for now by the runbook**, which says run each exactly once and drop-and-recreate if unsure, and by a full rebuild costing 14 seconds. | unassigned |
+| Derive-to-shadow-and-swap | **Superseded by a guard, deliberately.** `scripts/derive.sh` refuses to derive into a database that already holds asserted runs and verifies three post-conditions afterwards. | The hazard is real and measured: a second derive doubles concurrency (2,829 to 5,658) and **neither closure nor `max_runs_per_session_minute` detects it** `[V:derive_idempotence]`. Refusing makes that unreachable; `EXCHANGE TABLES` would only make it recoverable. The swap's extra benefit is zero-downtime rebuild, and a rebuild is 2 seconds. | build the swap only if the corpus grows enough that a 2-second rebuild stops being acceptable |
 
 ## Not started
 

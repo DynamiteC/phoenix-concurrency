@@ -65,6 +65,26 @@ SELECT * FROM
     UNION ALL SELECT 'intervals.zero_length', toString(countIf(interval_end = interval_start AND interval_start < {frozen_before:String})) FROM foreground_intervals
     UNION ALL SELECT 'intervals.positive_length', toString(countIf(interval_end > interval_start AND interval_start < {frozen_before:String})) FROM foreground_intervals
 
+    -- THE no-DOUBLE-DERIVE invariant. Must be exactly 1: a given (session, run_start, run_end)
+    -- may be asserted once and only once.
+    --
+    -- This exists because the two invariants that look like they should catch a re-run of the
+    -- batch derive both fail to, and that was measured rather than assumed. Running
+    -- 02_merge_runs.sql twice doubles every run and takes peak from 2,829 to 5,658, while:
+    --
+    --   closure (sum(delta) = 0) stays 0, because each duplicated +1 arrives with its own -1;
+    --   max_runs_per_session_minute stays 1, because the duplicate has an IDENTICAL key so
+    --     GROUP BY collapses it into one group of sum(sign)=2 rather than two overlapping
+    --     runs. That invariant detects OVERLAP, and this failure is REPETITION.
+    --
+    -- Only this one sees it: clean is 1, doubled is 2. Evidence: derive_idempotence.
+    UNION ALL SELECT 'invariant.max_assertions_of_one_run', toString(max(s)) FROM
+    (
+        SELECT sum(sign) AS s FROM session_minute_runs
+        WHERE run_start < {frozen_before:String}
+        GROUP BY video_session_id, run_start, run_end HAVING s > 0
+    )
+
     -- THE no-double-count invariant. Must be exactly 1: if any session-minute were covered
     -- by two asserted runs, that session would contribute 2 to a count of concurrent
     -- sessions at one instant, which is the single most damaging way this pipeline could be

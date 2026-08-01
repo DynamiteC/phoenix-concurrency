@@ -273,6 +273,45 @@ were re-derived, and **not one of the remaining 842 had a single run retracted**
 through the batch path and diffs the resulting curves: **5,316 minutes, 0 differing rows**. So
 the incremental path is not merely cheap, it lands on exactly the answer a full rebuild would.
 
+## 9c. Re-running the derive: a hazard that no obvious invariant catches
+
+**The hazard, measured on a throwaway copy of the validated corpus.**
+`[V:derive_idempotence]` `02_merge_runs.sql` asserts `sign = +1` unconditionally and appends.
+Running it a second time doubles everything: asserted runs **17,604 to 35,208**, peak
+concurrency **2,829 to 5,658**.
+
+**Why this is worse than an ordinary bug: the two invariants that should catch it do not.**
+
+| Invariant | Clean | After a double derive | Caught it |
+|---|---:|---:|---|
+| closure, `sum(delta) = 0` | 0 | **0** | no |
+| `max_runs_per_session_minute` | 1 | **1** | no |
+| `max_assertions_of_one_run` | 1 | **2** | **yes** |
+
+Closure survives because every duplicated `+1` arrives with its own matching `-1`, so the
+curve still closes. `max_runs_per_session_minute` survives because the duplicate run has an
+**identical key**, so the `GROUP BY` collapses it into one group of `sum(sign) = 2` rather than
+two overlapping runs: that invariant detects *overlap*, and this failure is *repetition*.
+
+A pipeline relying on either would report a perfectly healthy dataset with every concurrency
+number exactly doubled. That is the most dangerous shape a bug can take.
+
+**An earlier version of this finding claimed `max_runs_per_session_minute` caught it. That was
+wrong, and it was corrected by running the query rather than reasoning about it.** The
+detector is `max(sum(sign))` per `(video_session_id, run_start, run_end)`, which must be 1, and
+it is now checked by `ground_state.sh` on every run.
+
+**Decision.** `scripts/derive.sh` **refuses** to derive into a database that already holds
+asserted runs, and verifies all three post-conditions afterwards. `REBUILD=1` truncates first.
+
+**Why this rather than the shadow-and-swap `EXCHANGE TABLES` pattern `TASK.md` asks for**, and
+this is a deliberate trade stated plainly rather than a shortfall glossed over: refusing makes
+the corruption **unreachable**, where shadow-and-swap makes it **recoverable**. Unreachable is
+the stronger property. What shadow-and-swap additionally buys is zero-downtime rebuilds, and
+that only matters if a rebuild is slow. It is not: `[V:runbook_rehearsal]` a full rebuild from
+CSV is 70 seconds, of which the derive is **2 seconds** `[V:derive_phoenix_scratch_rehearsal]`.
+Build the swap if the corpus grows enough for that to stop being true.
+
 ## 10. Behaviour at 100x
 
 `[A]` The parts of this that are measured are labelled; the rest is reasoning from the

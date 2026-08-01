@@ -198,9 +198,17 @@ sessions 2,829, peak users 2,749, both at 2026-07-26 10:56.
 | `runs_inverted` | 0 | 0 | a run ends before it starts |
 | `intervals_inverted` | 0 | 0 | an interval ends before it starts |
 | `max_runs_per_session_minute` | 1 | **1** | one session counted twice at one instant |
+| `max_assertions_of_one_run` | 1 | **1** | the derive was run twice and everything is doubled |
 | `serving.min_concurrency` | 0 | 0 | concurrency went negative |
 
-The last two carry the most weight. `max_runs_per_session_minute = 1` is the no-double-count
+The last three carry the most weight. `max_runs_per_session_minute = 1` is the no-double-count
 proof. `min_concurrency = 0` says the deltas balance **in order**, not merely in total: a
 curve can sum to zero overall and still go negative in the middle, and that would be a real
 bug that closure alone would not catch.
+
+`max_assertions_of_one_run = 1` is the only one that detects a re-run of the batch derive.
+`[V:derive_idempotence]` Measured: running `02_merge_runs.sql` twice doubles concurrency from
+2,829 to 5,658 while **closure stays 0** (each duplicated `+1` brings its own `-1`) and
+**`max_runs_per_session_minute` stays 1** (the duplicate has an identical key, so `GROUP BY`
+collapses it; that invariant detects overlap, and this failure is repetition). Use
+`scripts/derive.sh`, which refuses to derive into a database that already holds runs.
