@@ -34,6 +34,9 @@ has not been started.
 | Lazy materialization tested and written up both ways | `lazy_materialization` | done |
 | Unseen-day runbook, rehearsed at 70 seconds | `runbook_rehearsal` | done |
 | Verification ledger, written from inside `evidence()` | `evidence/LEDGER.tsv` | done |
+| Oracle parity re-run against the rewritten serving layer, 4 of 4 at 0 diffs | `oracle_parity` | done |
+| Schema audited against the 31 ClickHouse best-practice rules | `clickhouse_rules_audit` | done |
+| Guarded derive: a double derive is refused, not merely detected | `derive_idempotence` | done |
 
 ## In flight
 
@@ -92,6 +95,9 @@ Owned by a teammate and untouched by this work. Two findings filed, neither fixe
 - [`issues/ingest-2.md`](issues/ingest-2.md): the stream stopped at 13:20:52. It ran as a
   scripted replay loop at 26 to 27 inserts per minute. **No freshness SLA may be quoted off
   it**, because end-to-end freshness is bounded by when somebody starts the loop.
+- [`issues/ingest-3.md`](issues/ingest-3.md): insert batches average **66 rows** against a
+  10,000 guideline. Harmless today, merge pressure at 100x. Two remedies offered, the
+  owner's call.
 
 ## Where to look
 
@@ -99,6 +105,7 @@ Owned by a teammate and untouched by this work. Two findings filed, neither fixe
 |---|---|
 | What is actually on the server | [`GROUND_STATE.md`](GROUND_STATE.md) |
 | What each table is for and why | [`DATA_MODEL.md`](DATA_MODEL.md) |
+| Physical reference: engines, columns, keys, sizes | [`database_details.md`](database_details.md) |
 | Why each design choice, and what it cost | [`problem/DESIGN.md`](problem/DESIGN.md) |
 | What we got wrong and how we caught it | [`corrections.md`](corrections.md) |
 | What to run when the sealed data drops | [`RUNBOOK_UNSEEN_DAY.md`](RUNBOOK_UNSEEN_DAY.md) |

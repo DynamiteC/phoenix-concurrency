@@ -32,6 +32,10 @@ WITH filtered AS
       AND ({video_type:String}  = '' OR video_type  = {video_type:String})
       AND ({app_version:String} = '' OR app_version = {app_version:String})
       AND ({content_id:Int64}   = 0  OR content_id  = {content_id:Int64})
+      -- Isolation from the live stream. Without this the serving side sees August rows the
+      -- oracle (which reads the July CSV) cannot, and parity fails with 46 phantom minutes
+      -- that are not a pipeline defect but a comparison of two different datasets.
+      AND minute < {frozen_before:String}
     GROUP BY minute
 ),
 curve AS

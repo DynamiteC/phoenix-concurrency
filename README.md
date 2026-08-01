@@ -78,6 +78,7 @@ Nothing here is quoted from memory.
 | [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started, owners |
 | [`docs/GROUND_STATE.md`](docs/GROUND_STATE.md) | What is actually on the server, measured |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
+| [`docs/database_details.md`](docs/database_details.md) | Physical reference, plus the ClickHouse best-practice audit |
 | [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Decisions, trade-offs, the filter-shape read table |
 | [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
 | [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) | Exact steps for the sealed drop, rehearsed |
