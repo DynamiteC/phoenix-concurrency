@@ -111,6 +111,48 @@ export interface OpenSessionsResponse {
   rowsRead?: number
 }
 
+/**
+ * One insight view's answer. Columns are carried alongside the rows rather than mapped into named
+ * fields, because each shipped .sql file is the single source of truth for its own shape and a
+ * second declaration here would be a copy to drift. The client reads by name off `columns`.
+ */
+export interface InsightTableResponse {
+  view: string
+  /** The business question this view answers, shown above it. */
+  question: string
+  /** The table it read. Named on screen so a number is one hop from its source. */
+  reads: string
+  /** Filters this view's query actually references. */
+  honours: readonly string[]
+  /** Filters it will silently ignore, surfaced so an inert control is stated, not discovered. */
+  ignores: readonly string[]
+  database: string
+  sqlFile: string
+  columns: string[]
+  rows: unknown[][]
+  ms: number
+  rowsRead: number
+}
+
+/** Derivation watermarks, one per insight table, against the raw stream's own. */
+export interface InsightStatusResponse {
+  database: string
+  rawLatest: string | null
+  rawEvents: number
+  factsLatest: string | null
+  factsSessions: number
+  snapshotLatest: string | null
+  snapshotMinutes: number
+  transitionsLatest: string | null
+  transitionsAsserted: number
+  healthLatest: string | null
+  cohortsLatest: string | null
+  /** Both expected to be zero until their producers run. Reported, never hidden. */
+  spikeEvents: number
+  lateEvents: number
+  ms: number
+}
+
 export interface ApiError {
   error: string
 }
