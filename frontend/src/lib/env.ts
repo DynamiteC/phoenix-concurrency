@@ -1,4 +1,4 @@
-// Reuses the repo-root .env (the same file scripts/ch.sh and demo/server.js read) so
+// Reuses the repo-root .env (the same file scripts/ch.sh and the retired demo server read) so
 // ClickHouse Cloud credentials live in exactly one gitignored place. This module is only ever
 // imported by route handlers, which run on the Node.js runtime server-side, the values here
 // never reach the browser.

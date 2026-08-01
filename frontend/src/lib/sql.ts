@@ -2,7 +2,7 @@
 //
 // WHY THIS REPLACED INLINE SQL. The route handlers used to carry their own copy of the query,
 // justified as "self-contained, deployable without the rest of the repo". The cost of that
-// choice, measured: the copies were forked from sql/queries/benchmark/, which the repo had
+// choice, measured: the copies were forked from the retired benchmark copies, which the repo had
 // already measured at 185.95 against a true 88.20 over the same day, and the fix committed to
 // sql/queries/serving/ never got ported across. The dashboard shipped a number 2.1x too high
 // while a correct query sat in the repo unused. A second copy of a query is not a deployment

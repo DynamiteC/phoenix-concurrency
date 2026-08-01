@@ -1,7 +1,23 @@
--- PRODUCTION QUERY, session-independent: concurrent USERS.
--- Identical shape to concurrency.sql, reading user_concurrency_deltas. One person watching
--- on two devices at once counts once here and twice there; that gap is the session-aware vs
--- session-independent divergence the problem statement asks about.
+-- KNOWN WRONG. RETAINED AS A REGRESSION FIXTURE. DO NOT SERVE THIS.
+--
+-- Measured full-day average on 2026-07-26: 185.95, against a true 88.20. 2.1x over.
+--
+-- The defect is one line, at the WITH FILL below: STEP with no FROM and no TO. An unbounded
+-- fill spans only the first to the last row that ALREADY EXISTS, so the denominator collapses
+-- to the 683 minutes that happen to carry a delta boundary instead of the 1,440 minutes in the
+-- requested range. Quiet minutes are not zeroed, they are omitted, which over-weights the busy
+-- ones and biases the average HIGH. It also lacks the seeded_window CTE, so a window opening
+-- mid-stream renders near zero while thousands are watching.
+--
+-- Kept, not deleted, because TASK.md section 3.1 requires reconstructing both published wrong
+-- values exactly from their implied denominators. A bug you cannot reproduce is a bug you do
+-- not understand, and this one shipped twice.
+--
+-- Corrected query: sql/queries/serving/concurrency_curve.sql.
+-- Only scripts/runbook_validation.sh reads this file, and only to reproduce the wrong number.
+-- scripts/check_query_sources.sh fails if any UI loads it.
+
+-- PRODUCTION QUERY. Minute curve plus peak and average for the window, in one result set.
 --
 -- Every filter is optional: '' means no filter on that dimension, content_id 0 means all.
 -- Parameters only, no string building, so the demo app passes user input straight through
@@ -29,7 +45,7 @@
 WITH filtered AS
 (
     SELECT minute, sum(delta) AS d
-    FROM user_concurrency_deltas
+    FROM concurrency_deltas
     WHERE ({platform:String}    = '' OR platform    = {platform:String})
       AND ({country:String}     = '' OR country     = {country:String})
       AND ({video_type:String}  = '' OR video_type  = {video_type:String})

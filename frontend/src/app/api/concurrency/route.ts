@@ -2,7 +2,7 @@
 //
 // The query text is NOT here. It is read from sql/queries/serving/, the single source of truth
 // for every shipped query. See src/lib/sql.ts for what the previous inline copy cost us: it was
-// forked from sql/queries/benchmark/, which this repo had already measured at 185.95 against a
+// forked from the retired benchmark copies, which this repo had already measured at 185.95 against a
 // true 88.20 over the same day, and the correction committed to serving/ was never ported.
 //
 // Two round trips, deliberately. reach reads the runs tables rather than the delta table, so it

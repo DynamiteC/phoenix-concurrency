@@ -1,8 +1,8 @@
 # frontend: Phoenix Console
 
 A Next.js (App Router, TypeScript) dashboard for the foreground-only concurrency serving layer.
-This replaces `demo/` as the primary UI: same data contract, same ClickHouse HTTP proxy pattern,
-rebuilt as a typed, componentized app instead of one HTML file.
+This is the primary and only UI. It replaced a single-file vanilla dashboard, which has been
+removed, and it is what a judge sees.
 
 ## Problem
 
@@ -33,13 +33,24 @@ here runs in single-digit milliseconds.
   devices is two sessions and one user, that gap is the point of having both models, not an
   error in either).
 
-The SQL is inlined in each route handler (`src/app/api/concurrency/route.ts` and
-`src/app/api/user-concurrency/route.ts`), mirroring the pipeline's production queries at
-[`sql/queries/benchmark/concurrency.sql`](../sql/queries/benchmark/concurrency.sql) and
-[`sql/queries/benchmark/user_concurrency.sql`](../sql/queries/benchmark/user_concurrency.sql)
-rather than reading those files off disk, this app has no runtime dependency on the rest of the
-repo and can be deployed on its own. If the pipeline's query logic changes, port the change into
-both copies.
+The SQL is **not** in this app. Every shipped query is read off disk from
+[`sql/queries/serving/`](../sql/queries/serving/), which is the single source of truth, via
+`src/lib/sql.ts`.
+
+This used to be the other way round: the routes inlined their own copy, justified as "no runtime
+dependency on the rest of the repo, deployable on its own". What that cost, measured: the inlined
+copies were forked from a since-retired benchmark directory whose query this repo had already
+measured at **185.95** against a true **88.20** over the same day, and the correction committed to
+`serving/` was never ported across. The dashboard served a number 2.1x too high while the correct
+query sat in the repo with no reader.
+
+So the trade is now explicit and deliberate: this app requires the repo checkout at runtime,
+exactly as it already required `../.env`. In exchange there is no second copy of a query to go
+stale, and [`scripts/check_query_sources.sh`](../scripts/check_query_sources.sh) fails the build
+if one reappears.
+
+Columns are read from the result **by name**, never by position, so a column added for the
+benchmark or validation harness cannot silently shift which number appears under which label.
 
 ## Setup
 
@@ -51,8 +62,13 @@ cd frontend
 npm install
 ```
 
-Credentials: this app reads the repo-root `../.env` (the same file `scripts/ch.sh` and
-`demo/server.js` use) for `CH_HOST` / `CH_PORT` / `CH_USER` / `CH_PASSWORD` / `CH_DATABASE`.
+Credentials: this app reads the repo-root `../.env` (the same file `scripts/ch.sh` uses) for
+`CH_HOST` / `CH_USER` / `CH_PASSWORD` / `CH_DATABASE`.
+
+It deliberately does **not** read `CH_PORT`. That variable is `9440`, the native secure protocol
+port for `clickhouse-client`; this app speaks HTTPS, which is `8443`. Reading it meant every
+request went to the wrong port and none could succeed. Override with `CH_HTTP_PORT` if a
+deployment genuinely differs.
 If it doesn't exist yet:
 
 ```bash
@@ -65,7 +81,7 @@ need it if `../.env` is already set up.
 ## Run
 
 ```bash
-npm run dev      # http://localhost:3200 (3100 stays free for demo/server.js)
+npm run dev      # http://localhost:3200
 npm run build && npm run start   # production build
 npm run typecheck
 ```

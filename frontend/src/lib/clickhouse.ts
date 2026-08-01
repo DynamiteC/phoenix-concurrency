@@ -1,4 +1,4 @@
-// Talks to the ClickHouse HTTP interface directly, the same contract demo/server.js uses:
+// Talks to the ClickHouse HTTP interface directly, the same contract the retired demo server uses:
 // POST the fixed SQL text, pass all user-controlled values as `param_*` query-string
 // parameters (never string-built into the SQL), read back JSONCompact. SQL text lives inline
 // in each route handler (see src/app/api/*/route.ts), self-contained, no read from ../sql.

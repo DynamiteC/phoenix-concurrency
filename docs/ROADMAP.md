@@ -100,7 +100,7 @@ open sessions and late arrivals are absorbed without touching any other session.
 ./scripts/ch.sh --queries-file sql/pipeline/04_merge_user_runs.sql
 ./scripts/ch.sh --queries-file sql/queries/validation/data_quality.sql --format PrettyCompact
 ./scripts/test_open_sessions.sh 30                     # update-handling proof
-node demo/server.js                                    # dashboard on :3100
+cd frontend && npm install && npm run dev            # dashboard on :3200
 ```
 
 Incremental (what a live pipeline runs each tick):

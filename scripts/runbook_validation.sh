@@ -150,19 +150,19 @@ q() { ./scripts/ch.sh --format TSVRaw --query "$1" 2>/dev/null | head -1; }
       req AS (SELECT 1 AS k, arrayJoin(timeSlots(f, toUInt32(dateDiff('second',f,t)-60),60)) AS minute)
     SELECT count() FROM req m ASOF LEFT JOIN curve c ON m.k=c.k AND m.minute >= c.minute")"
 
-  # T29/T30. The shipped dashboard path (demo/server.js loads benchmark/) against the
+  # T29/T30. The retired dashboard path (a retired dashboard loaded the unbounded-fill query) against the
   # corrected serving/ path, same window. Both averages, one query each.
   _p=(--param_from_ts '2026-07-26 00:00:00' --param_to_ts '2026-07-27 00:00:00'
       --param_platform '' --param_country '' --param_video_type '' --param_app_version ''
       --param_content_id 0 --param_grain_s 86400)
-  _bench="$(./scripts/ch.sh --format TSVRaw "${_p[@]}" --queries-file sql/queries/benchmark/peak_average.sql 2>/dev/null | head -1)"
+  _bench="$(./scripts/ch.sh --format TSVRaw "${_p[@]}" --queries-file sql/queries/known-wrong/peak_average_no_densification.sql 2>/dev/null | head -1)"
   _serve="$(./scripts/ch.sh --format TSVRaw "${_p[@]}" --queries-file sql/queries/serving/peak_average.sql 2>/dev/null | head -1)"
   printf '30\tbenchmark_peak_average_sql_average\t%s\n' "$(echo "$_bench" | cut -f4)"
   printf '30\tserving_peak_average_sql_average\t%s\n'   "$(echo "$_serve" | cut -f4)"
   printf '30\tserving_denominator\t%s\n'                "$(echo "$_serve" | cut -f7)"
   _curve_out="$(./scripts/ch.sh --format TSVRaw --param_from_ts '2026-07-26 00:00:00' \
     --param_to_ts '2026-07-27 00:00:00' --param_platform '' --param_country '' --param_video_type '' \
-    --param_app_version '' --param_content_id 0 --queries-file sql/queries/benchmark/concurrency.sql 2>/dev/null)"
+    --param_app_version '' --param_content_id 0 --queries-file sql/queries/known-wrong/concurrency_unbounded_fill.sql 2>/dev/null)"
   printf '29\tbenchmark_concurrency_sql_first_minute\t%s\n' "$(echo "$_curve_out" | head -1 | cut -f1)"
   printf '29\tbenchmark_concurrency_sql_last_minute\t%s\n'  "$(echo "$_curve_out" | tail -1 | cut -f1)"
   printf '29\tbenchmark_concurrency_sql_rows\t%s\n'         "$(echo "$_curve_out" | wc -l | tr -d ' ')"

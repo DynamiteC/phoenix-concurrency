@@ -178,7 +178,7 @@ echo "== 7. verdict: incremental result vs one-pass truth"
 curve() { CH_DATABASE="$1" ./scripts/ch.sh --format TSV \
     --param_platform='' --param_country='' --param_video_type='' --param_app_version='' \
     --param_content_id=0 --param_from_ts='2000-01-01 00:00:00' --param_to_ts='2100-01-01 00:00:00' \
-    --queries-file sql/queries/benchmark/concurrency_curve.sql 2>&1 | grep -v "Unknown settings"; }
+    --queries-file sql/queries/serving/concurrency_curve.sql 2>&1 | grep -v "Unknown settings"; }
 curve "$TEST"  > "$TMP/test.tsv"
 curve "$TRUTH" > "$TMP/truth.tsv"
 DIFFS=$(diff "$TMP/truth.tsv" "$TMP/test.tsv" | grep -c '^[<>]' || true)

@@ -1,3 +1,18 @@
+-- KNOWN WRONG. RETAINED AS A REGRESSION FIXTURE. DO NOT SERVE THIS.
+--
+-- Measured full-day average on 2026-07-26: 246.98, against a true 88.20. 2.8x over.
+--
+-- The defect: no densification at all. The average is taken straight over the sparse delta
+-- boundary rows, so the denominator is the number of minutes in which concurrency CHANGED
+-- rather than the number of minutes in the range. Same class as
+-- concurrency_unbounded_fill.sql and a worse instance of it.
+--
+-- Peak returns 2,829 here, correctly. That is exactly why this survived undetected: peak can
+-- only occur at a delta boundary, so it is immune to sparseness. Average is not. Nor is p95,
+-- which the dashboard shipped over the sparse series for the same reason.
+--
+-- Kept as a fixture per TASK.md 3.1. Corrected query: sql/queries/serving/peak_average.sql.
+
 -- Peak and average concurrency over a range, at any time grain, with dimension filters.
 --
 -- Peak is computed AFTER filtering, never read from a stored maximum: an Android slice and

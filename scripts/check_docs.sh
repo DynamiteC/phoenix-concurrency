@@ -45,7 +45,14 @@ fi
 # the validation checklist are handed to us, and rewriting someone else's document to satisfy
 # our own style rule would be worse than the violation.
 style=0
-authored="$(git ls-files 'docs/*.md' 'scripts/*.sh' 'sql/**/*.sql' 'README.md' 2>/dev/null | grep -v '^docs/problem/' || true)"
+#
+# frontend/ is in scope as of this session and was not before. It arrived by merge carrying 28
+# em-dashes, which is not the author's fault: nothing told them, because this scan did not look
+# there. It looks there now, so the next person finds out from a failing check rather than from
+# a reviewer.
+authored="$(git ls-files 'docs/*.md' 'scripts/*.sh' 'sql/**/*.sql' 'README.md' \
+                         'frontend/src/**' 'frontend/*.md' 2>/dev/null \
+             | grep -v '^docs/problem/' || true)"
 for f in $authored; do
   [ -f "$f" ] || continue
   if LC_ALL=C grep -nP '\xc2\xa7|\xe2\x80\x94|[\x{1F300}-\x{1FAFF}]|[\x{2600}-\x{27BF}]' "$f" 2>/dev/null; then
@@ -62,5 +69,9 @@ while IFS=$'\t' read -r _ _ _ path _; do
   [ -f "$path" ] || { echo "FAIL: ledger points at a missing artifact: $path" >&2; dangling=$((dangling + 1)); }
 done < evidence/LEDGER.tsv
 [ "$dangling" -eq 0 ] && echo "ok: every ledger row points at a file that exists" || fail=1
+
+# One source of truth for shipped query text. Separate script because it asserts a different
+# kind of property, but run from here so there is a single command to remember.
+./scripts/check_query_sources.sh || fail=1
 
 exit "$fail"

@@ -481,7 +481,8 @@ Three properties worth knowing before you read the SQL:
    `[V:peak_not_a_rollup]`.
 
 `sql/queries/validation/` holds the slow, obviously-correct brute-force versions the serving layer
-is checked against; `sql/queries/benchmark/` holds the graded questions with their measured reads.
+is checked against; `sql/queries/serving/` holds the graded questions with their measured reads, and
+`sql/queries/known-wrong/` retains the two superseded copies as regression fixtures.
 
 ## Invariants, checked on every run
 
