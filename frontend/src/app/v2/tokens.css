@@ -80,16 +80,25 @@
   /* CHART SERIES. The design system defines no data-visualisation palette, so these are chosen
      rather than transcribed, against three constraints: readable on #f6f6f3, distinguishable
      without relying on hue alone (each also moves in lightness), and no neon-yellow, which the
-     system reserves for hero text. Contrast against surface-base is 4.5:1 or better for every
-     one, so a 1px line stays visible. */
+     system reserves for hero text.
+     MEASURED, not asserted, against surface-base: 5.03, 4.84, 4.65, 5.43, 4.95. All clear 4.5:1,
+     so a 1px line stays visible and a series label sitting on the surface stays readable. series-5
+     was #9a6a00 at 4.37 and did not clear it; the claim in this comment was written before the
+     measurement and was wrong until the value changed to match it. */
   --series-1: #1863dc;
   --series-2: #b0501c;
   --series-3: #2f7d4f;
   --series-4: #7a4bbd;
-  --series-5: #9a6a00;
+  --series-5: #8f6200;
 
-  /* Semantic states, for health rates rather than decoration. */
+  /* Semantic states, for health rates rather than decoration. Measured against surface-base
+     rather than eyeballed: primary 14.72:1, secondary 10.09:1, tertiary 4.95:1, action-blue
+     5.03:1, good 4.65:1, bad 6.18:1, all clearing the 4.5:1 the design system's Do list requires
+     for body text.
+     warn was #9a6a00 at 4.37:1. It is only ever a 3px border today, where the requirement is 3:1
+     for a non-text component and it passed, but a token that fails as text is a trap for whoever
+     next reaches for it. Darkened to 4.95:1 so it is safe wherever it ends up. */
   --state-good: #2f7d4f;
-  --state-warn: #9a6a00;
+  --state-warn: #8f6200;
   --state-bad: #b02525;
 }

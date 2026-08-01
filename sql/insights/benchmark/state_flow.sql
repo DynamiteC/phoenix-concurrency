@@ -38,40 +38,66 @@
 --
 -- So the inner query nets each (edge, session) pair first. Then a pair that still stands has
 -- net > 0 and a pair that was retracted has net = 0, and both aggregates fall out of the same
--- pass: transitions is the sum of the nets, sessions is the count of pairs that survived. This
--- costs one GROUP BY over three columns rather than the full-row dedup that the same correctness
--- would otherwise require.
+-- pass: transitions is the sum of the nets, sessions is the count of pairs that survived.
+--
+-- AND max() IS NOT RETRACTION-SAFE EITHER, which the Gate A diff against
+-- validation/state_flow_ground_truth.sql caught after the session count was already fixed. A plain
+-- max(seconds_in_previous_state) reports the longest duration among ALL physical rows including
+-- retracted ones: measured 1,134 seconds on the background -> ended edge against a true 168. Every
+-- other column agreed, so nothing about the result looked wrong.
+--
+-- The fix is the innermost GROUP BY, which nets by DURATION as well as by session. Each distinct
+-- duration then cancels its own retraction, so maxIf(..., net > 0) one level up sees only the
+-- durations that still stand. A live transition and a retracted one sharing a duration still net
+-- positive, which is correct: that duration does survive.
+--
+-- Three levels rather than the full-row dedup the reference uses, which is the trade: exact, and
+-- still grouping by four columns instead of fifteen.
 SELECT
     from_state,
     to_state,
-    toInt64(sum(net))                                       AS transitions,
-    toInt64(countIf(net > 0))                               AS sessions,
+    toInt64(sum(session_net))                                       AS transitions,
+    toInt64(countIf(session_net > 0))                               AS sessions,
     -- greatest(..., 1) guards the divide when an edge's assertions and retractions cancel exactly,
     -- which happens for an edge that existed and no longer does.
-    round(sum(weighted_seconds) / greatest(sum(net), 1), 1) AS avg_seconds_in_from_state,
-    toInt64(max(max_seconds))                               AS max_seconds_in_from_state,
+    round(sum(session_weighted) / greatest(sum(session_net), 1), 1) AS avg_seconds_in_from_state,
+    toInt64(max(session_max))                                       AS max_seconds_in_from_state,
     -- Synthesised transitions carry an event type that cannot appear in raw_events, so this counts
     -- the edges entered by silence rather than by an observed event.
-    toInt64(sum(net_timeout))                               AS entered_by_timeout
+    toInt64(sum(session_timeout))                                   AS entered_by_timeout
 FROM
 (
     SELECT
         from_state,
         to_state,
         video_session_id,
-        sum(sign)                                                AS net,
-        sum(seconds_in_previous_state * sign)                    AS weighted_seconds,
-        max(seconds_in_previous_state)                           AS max_seconds,
-        sumIf(sign, trigger_event_type = 'HeartbeatTimeout')     AS net_timeout
-    FROM session_state_transitions
-    WHERE ({platform:String}    = '' OR platform    = {platform:String})
-      AND ({country:String}     = '' OR country     = {country:String})
-      AND ({video_type:String}  = '' OR video_type  = {video_type:String})
-      AND ({app_version:String} = '' OR app_version = {app_version:String})
-      AND ({content_id:Int64}   = 0  OR content_id  = {content_id:Int64})
-      AND transition_at >= parseDateTimeBestEffort({from_ts:String})
-      AND transition_at <  parseDateTimeBestEffort({to_ts:String})
-      AND transition_at <  {frozen_before:String}
+        sum(net)                        AS session_net,
+        sum(weighted_seconds)           AS session_weighted,
+        -- maxIf over the SURVIVING durations only. This is the level the duration grouping below
+        -- exists to make possible.
+        maxIf(seconds_in_previous_state, net > 0) AS session_max,
+        sum(net_timeout)                AS session_timeout
+    FROM
+    (
+        SELECT
+            from_state,
+            to_state,
+            video_session_id,
+            seconds_in_previous_state,
+            sum(sign)                                            AS net,
+            sum(seconds_in_previous_state * sign)                AS weighted_seconds,
+            sumIf(sign, trigger_event_type = 'HeartbeatTimeout') AS net_timeout
+        FROM session_state_transitions
+        WHERE ({platform:String}    = '' OR platform    = {platform:String})
+          AND ({country:String}     = '' OR country     = {country:String})
+          AND ({video_type:String}  = '' OR video_type  = {video_type:String})
+          AND ({app_version:String} = '' OR app_version = {app_version:String})
+          AND ({content_id:Int64}   = 0  OR content_id  = {content_id:Int64})
+          AND transition_at >= parseDateTimeBestEffort({from_ts:String})
+          AND transition_at <  parseDateTimeBestEffort({to_ts:String})
+          AND transition_at <  {frozen_before:String}
+        GROUP BY from_state, to_state, video_session_id, seconds_in_previous_state
+    )
     GROUP BY from_state, to_state, video_session_id
 )
 GROUP BY from_state, to_state
