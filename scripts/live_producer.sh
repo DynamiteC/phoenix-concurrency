@@ -2,9 +2,9 @@
 # Live event producer: 15 concurrent Sony LIV live streams, ~12,000 concurrent sessions, held
 # for an hour, written straight through the real ingest path.
 #
-#   ./scripts/live_producer.sh                          # phoenix, 120 cycles of 30s
+#   ./scripts/live_producer.sh                          # phoenix_next, 120 cycles of 30s
 #   TARGET=12000 CYCLES=120 PERIOD=30 ./scripts/live_producer.sh
-#   DB=phoenix_insights ./scripts/live_producer.sh       # rehearse somewhere disposable
+#   DB=phoenix ./scripts/live_producer.sh                # aim at the graded database instead
 #   RESET=1 ./scripts/live_producer.sh                   # forget the alive population, start over
 #
 # ---------------------------------------------------------------------------------------------
@@ -15,8 +15,8 @@
 #
 # WHY ONE INSERT PER CYCLE AND NOT ONE PER STREAM. Parts, not rows, are what overwhelm the merge
 # process (ClickHouse rule insert-batch-size: 10K-100K rows per INSERT). All 15 streams and all
-# five event classes are UNION ALLed into a single statement of roughly 30,000 rows, which is
-# inside that band. Everything is generated server-side from numbers(), so no rows cross the wire
+# five event classes are UNION ALLed into a single statement measuring 40,536 rows at p50 in a
+# live run, which is inside that band. Everything is generated server-side from numbers(), so no rows cross the wire
 # and a bigger demo costs no more network than a smaller one.
 #
 # WHY NOT PARALLEL PRODUCER PROCESSES. Because generation is server-side, a second producer adds

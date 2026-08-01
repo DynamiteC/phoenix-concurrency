@@ -27,7 +27,7 @@ UNION ALL SELECT 'phoenix_next', countIf(event_timestamp<'2026-08-01'),
 15 concurrent Sony LIV live streams, ~12,000 concurrent sessions, one hour.
 
 ```bash
-./scripts/reset_live.sh --yes                 # clear the live slice; proves the frozen slice survived
+./scripts/reset_live.sh --db phoenix_next --yes   # clear the live slice; proves the frozen slice survived
 ./scripts/live_demo.sh                        # producer + deriver + 3 query workers + observer
 ```
 

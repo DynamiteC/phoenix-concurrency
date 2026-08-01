@@ -169,6 +169,24 @@ drop_live_partitions() {
     echo "   skip $tbl (not in this database)" >&2; return; }
   local key
   key="$(val "SELECT partition_key FROM system.tables WHERE database = currentDatabase() AND name = '$tbl'")"
+  # THE PARTITION ID FORMAT MUST MATCH THE BOUNDARY FORMAT, and a string comparison will not tell
+  # you when it does not. BOUNDARY_PART is YYYYMMDD. A table partitioned toYYYYMM produces ids like
+  # '202608', and '202608' >= '20260801' evaluates to FALSE in ClickHouse because the shorter
+  # string sorts first. The loop would then find nothing, drop nothing, and report success.
+  #
+  # Refusing is the only safe answer. Dropping a monthly partition against a daily boundary would
+  # be worse than skipping it: partition 202607 holds the entire validated July corpus, so a
+  # comparison that accidentally matched would destroy the graded data this script exists to
+  # protect.
+  case "$key" in
+    *toYYYYMMDD*) : ;;
+    "")           : ;;
+    *)
+      echo "   WARNING: $tbl partitions by '$key', not toYYYYMMDD, and was NOT cleared." >&2
+      echo "     Its partition ids cannot be compared against the ${BOUNDARY_PART} boundary." >&2
+      UNPARTITIONED="${UNPARTITIONED}${tbl}(${key}) "
+      return;;
+  esac
   if [ -z "$key" ]; then
     echo "   WARNING: $tbl has no partition key and was NOT cleared." >&2
     echo "     Run ./scripts/repartition_derived.sh --db $DB --yes, then reset again." >&2

@@ -1,8 +1,13 @@
 # Spike sustainability: healthy vs weak, same audience, opposite verdict
 
-Implements `sonyliv_spike_sustainability_data_injection_spec.md` against `phoenix_insights`, which
-is a replica of the validated corpus built for this purpose and disposable by construction.
-The spike scripts never touch `phoenix` (the live demo in [DEMO_LIVE.md](DEMO_LIVE.md) does, deliberately).
+Implements `sonyliv_spike_sustainability_data_injection_spec.md` against **`phoenix_next`**, the
+insight database the frontend reads. The spike scripts never touch `phoenix`, which holds the
+graded corpus.
+
+The spec names a separate `phoenix_insights` database. One was built and then dropped: it doubled
+the schema surface and meant the spike demo could not be shown beside the live insights it exists
+to explain. Everything below runs in `phoenix_next`, isolated by `content_id = 990001` instead of
+by database, and `--cleanup` removes it entirely.
 
 ## Run it
 
@@ -41,10 +46,14 @@ them identical; one that measures foreground retention separates them.
   aggressive than the spec intends, so the drop is ~51% rather than ~35%. It clears the
   `short_lived` threshold comfortably; tightening it to hit 65% exactly is a parameter change in
   `WEAK_PARAMS`, not a design change.
-- **Deviations from the spec, deliberate**, are listed with reasons in the plan: `phoenix_insights`
-  is built rather than assumed to exist, `session_state_transitions` is not created (the rates the
-  verdict needs are per-session and already live in `session_insight_facts`), and
-  `arrival_timestamp` is not emitted because the landing table deliberately does not carry it.
+- **Deviations from the spec, deliberate.** The separate `phoenix_insights` database was dropped
+  in favour of `phoenix_next` (see above). `arrival_timestamp` is not emitted, because the landing
+  table deliberately does not carry it: per `sql/schema/01_raw_events.sql` a producer supplying its
+  own arrival time is supplying a claim rather than an observation, and the materialized view
+  stamps the real one. `session_state_transitions` **has since been built**, so the spike verdict
+  could now read background and error rates from either it or `session_insight_facts`; it still
+  uses the latter, because the rates a verdict needs are per session and that is already their
+  grain.
 
 ## Three ClickHouse traps this cost
 
@@ -58,7 +67,8 @@ is what `insert-mutation-avoid-delete` means in practice.
 **Replicated insert deduplication silently drops a byte-identical re-load.** The generator is
 deterministic *because the spec demands it*, fixed seed, so a correctness gate can compare runs.
 That makes every re-run produce an identical block, which ClickHouse discards as a duplicate
-within its dedup window. Measured: `phoenix_insights` held the weak scenario and none of the
+within its dedup window. Measured at the time, in the since-dropped `phoenix_insights`: it held
+the weak scenario and none of the
 healthy one, because the healthy block was still inside the window and the weak one had aged out.
 Worse, the classifier still returned `healthy_sustained`, computed from insight rows left by an
 earlier run, since those tables are ReplacingMergeTree and nothing had removed them. **A green
