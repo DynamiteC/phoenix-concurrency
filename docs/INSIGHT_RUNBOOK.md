@@ -88,6 +88,25 @@ Repeated here because getting one wrong produces a plausible number rather than 
 - `SummingMergeTree` (the delta tables): `sum(delta)` and `uniqExact(minute)`, never `count()`.
 - Never `system.tables.total_rows`. It tracks parts, not data.
 
+## A known gap: two tables this branch reads but does not declare
+
+`./scripts/check_docs.sh` currently reports drift on `phoenix_next` from this branch, and the
+cause is a split of ownership rather than a defect.
+
+`session_state_transitions` and `concurrency_spike_events` exist and are populated in the
+database, and the v2 console reads both. Their DDL files live in the other session's checkout and
+are not yet committed, so the reference database this branch builds from `sql/insights/schema/`
+does not contain them and the diff reports them as unexpected.
+
+Nothing here can fix that without copying someone else's in-flight DDL, which is how two sessions
+end up with two divergent definitions of one table. The resolution is for whoever owns those two
+tables to commit `sql/insights/schema/02_session_state_transitions.sql` and
+`10_concurrency_spike_events.sql`, at which point the gate goes green with no change on this side.
+
+The four tables this branch does own are declared:
+`06_user_content_transitions.sql` and `07_user_platform_transitions.sql` are committed here, and
+neither appears in the drift list.
+
 ## Two databases, and which is which
 
 `phoenix` is generation one: the validated concurrency engine, what the v1 console at `/` reads,

@@ -30,6 +30,8 @@ costs 27.60 MiB in `phoenix` and roughly the same again in `phoenix_next`.
 | `playback_health_minute` | 12 months | App-version regression is a question about versions currently in the field. |
 | `content_entry_cohorts` | 12 to 24 months | Same argument as the minute snapshot. |
 | `late_event_audit` | 90 to 180 days | An exception log. Its value is operational and decays quickly. |
+| `user_content_transitions` | 12 months | Cannibalization is asked about a title while it is still scheduled against something. A move between two shows that both finished a year ago is history, not a decision input. |
+| `user_platform_transitions` | 12 months | Device-mix migration is a capacity question about the devices currently in the field, and the field turns over faster than a year. |
 | `concurrency_forecasts` detail | 90 days, aggregated longer | Forecast accuracy is scored soon after the fact; the scores are worth keeping, the per-run rows are not. |
 
 `concurrency_deltas` and `user_concurrency_deltas` are **absent from this table on purpose**. They
