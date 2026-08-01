@@ -70,24 +70,29 @@ the first minute of the series. Opposite key orders, same reasoning applied to d
 
 | Query | Reads | Worst shape | Rows read | Bytes read | Cold / warm | `raw_events` in plan |
 |---|---|---|---:|---:|---:|---|
-| `session_facts_app_version_health` | `session_insight_facts` | content | 21,732 | 2,243,290 | 27 / 20 ms | **no** |
+| `session_facts_app_version_health` | `session_insight_facts` | content | 10,866 | 1,121,645 | 27 / 20 ms | **no** |
 | `audience_snapshot_minute_trend` | `audience_minute_snapshot` | content | 96,216 | 5,015,770 | 38 / 56 ms | **no** |
 | `cohorts_retention_curve` | `content_entry_cohorts` | content | 8,181 | 361,131 | | **no** |
-| `health_incident_window` | `playback_health_minute` | content | 192,434 | 5,413,480 | | **no** |
+| `health_incident_window` | `playback_health_minute` | content | 96,217 | 2,706,740 | | **no** |
 
 `[V:insight_bench_session_facts_app_version_health]`, six filter shapes, `use_query_cache = 0`.
-Budget committed on the query as `SETTINGS max_rows_to_read = 65199, max_bytes_to_read = 6729870`,
-which is 3x measured.
+Budget committed on the query as `SETTINGS max_rows_to_read = 32598, max_bytes_to_read = 3364935`,
+which is 3x measured. All ten shipped queries also carry `max_execution_time = 30` with
+`timeout_before_checking_execution_speed = 0`, without which the cap is not a wall-clock limit.
+See [`INSIGHT_RULES_AUDIT.md`](INSIGHT_RULES_AUDIT.md) for the 31-rule review that produced the
+re-key, and for what the halving above is and is not attributable to.
 
 **Two things the table would otherwise be read as saying, and does not.**
 
-*Dimension filters do not prune this query.* Every shape reads about 21.7k rows, and `content`
-reads more bytes than unfiltered because it must read `content_id` to filter on it. The ORDER BY
-leads with `content_id` while the selective predicate is a `session_start` range spanning every
-content id, so the key has nothing to prune with. At 119,491 rows and 3 granules this is noise.
-Reordering the key would move the cost onto content-filtered queries, and the plan's own Phase 14
-says not to make a risky immutable-key migration for a theoretical benefit. Re-measured at ten
-times volume in Stage 5.
+*Dimension filters did not prune this query, and that has now been fixed.* The original key led
+with `content_id` while the selective predicate was a `session_start` range spanning every content
+id, so the key had nothing to prune with: every shape read about 21.7k rows and `content` read more
+bytes than unfiltered. The table is re-keyed on
+`(toDate(session_start), country, platform, content_id, session_start, video_session_id)` and
+granules went from 3 of 3 to 1 of 1. The earlier note here said not to make a risky immutable-key
+migration for a theoretical benefit; the benefit stopped being theoretical once it was measured, and
+the migration stopped being risky because `scripts/rebuild_insights.sh` does it in seconds while
+`phoenix_next` is still a sandbox. Doing it after Stage 5 would have been the expensive version.
 
 *Read cost scales with stored versions, not only with data.* 21,732 rows is two versions of each of
 10,866 sessions, because the refresh had run twice and no merge had collapsed them yet. An

@@ -39,7 +39,14 @@ CREATE TABLE IF NOT EXISTS playback_health_minute
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMMDD(minute)
-ORDER BY (minute, content_id, platform, country, app_version);
+-- video_type ADDED to the key, closing the same dedup hazard as content_entry_cohorts: the
+-- refresh writes at a grain including video_type, and ORDER BY is this ReplacingMergeTree's dedup
+-- key, so without it two rows differing only by video_type would collapse to one.
+--
+-- minute stays in front, unlike the two tables above, and the benchmark supports it: these rows
+-- are absolute per-minute values rather than a series that must be summed from its own start, so
+-- a time predicate prunes. Measured partition pruning to a single day already works.
+ORDER BY (minute, content_id, platform, country, app_version, video_type);
 
 -- recovered_after_error, returned_after_timeout and error_recovery_rate are in the plan and NOT
 -- here. All three are questions about what a session did NEXT, which is a transition and not a

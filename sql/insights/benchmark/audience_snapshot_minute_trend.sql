@@ -64,5 +64,11 @@ ORDER BY minute
 -- Unlike the concurrency curve, a time predicate DOES prune here: minute leads this table's
 -- ORDER BY, because these rows are absolute values rather than a series that must be summed from
 -- its own beginning. That difference is the whole reason the two tables have opposite key orders.
+-- max_execution_time is a wall-clock ceiling, and timeout_before_checking_execution_speed = 0 is
+-- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
+-- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
+-- what a query SCANS and says nothing about how long it may run.
 SETTINGS max_rows_to_read  = 288648,
-         max_bytes_to_read = 15047310;
+         max_bytes_to_read = 15047310,
+         max_execution_time = 30,
+         timeout_before_checking_execution_speed = 0;

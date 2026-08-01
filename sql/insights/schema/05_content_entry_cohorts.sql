@@ -42,7 +42,19 @@ CREATE TABLE IF NOT EXISTS content_entry_cohorts
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMMDD(cohort_minute)
-ORDER BY (content_id, cohort_minute, platform, country, app_version);
+-- RE-KEYED, and this one also fixes a correctness hazard. The old key was (content_id,
+-- cohort_minute, platform, country, app_version), which omitted video_type. This is a
+-- ReplacingMergeTree, so ORDER BY IS the dedup key, and the refresh writes at a grain that
+-- INCLUDES video_type: two cohorts differing only by video_type shared a key and one would have
+-- been discarded. Measured 0 collisions today, because video_type is functionally determined by
+-- content_id with 0 exceptions, but that invariant is undeclared and unchecked.
+--
+-- Cardinality now ascends: video_type 3, country 5, platform 15, app_version 66, content_id
+-- 3,366, then cohort_minute. Time comes last here, unlike session_insight_facts, because this
+-- table is partitioned by DAY, so a day-window query has already pruned before the key is
+-- consulted. Same reasoning as concurrency_deltas.
+PRIMARY KEY (video_type, country, platform, app_version)
+ORDER BY (video_type, country, platform, app_version, content_id, cohort_minute);
 
 -- active_after_30m and retention_30m are in the plan and not here. session_insight_facts carries
 -- flags at 1, 5, 10 and 15 minutes only, and those four are the ones validated against the

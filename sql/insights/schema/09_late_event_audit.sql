@@ -21,7 +21,12 @@ CREATE TABLE IF NOT EXISTS late_event_audit
     event_timestamp   DateTime64(3),
     arrival_timestamp DateTime64(3),
     lateness_seconds  Int64,             -- signed: negative means the event is dated in the future
-    lateness_class    LowCardinality(String),
+    -- Enum8, not LowCardinality(String), per clickhouse-best-practices rule schema-types-enum:
+    -- the four classes are fixed at schema time, so an Enum gets insert-time validation free. A
+    -- typo in the classifier below becomes an error at write time instead of a fifth class that
+    -- nobody notices in a dashboard. One byte, and the ordering is the severity ordering.
+    lateness_class    Enum8('on_time' = 1, 'late_acceptable' = 2,
+                            'late_after_finalization' = 3, 'invalid_future_event' = 4),
     event_type        LowCardinality(String),
     event             LowCardinality(String),
     -- Safe here in a way `raw_events.ingested_at` is not: this column exists from the moment the

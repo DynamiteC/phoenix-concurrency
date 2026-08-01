@@ -63,7 +63,12 @@ SELECT
 FROM iv
 INNER JOIN ret  AS r ON r.sid = iv.sid
 INNER JOIN dims AS d ON d.sid = iv.sid
-LEFT  JOIN content AS c ON c.content_id = d.content_id
+-- LEFT ANY JOIN, not LEFT JOIN, per clickhouse-best-practices rule query-join-use-any. This is a
+-- one-row-per-key lookup, and `content` is a ReplacingMergeTree: duplicate content_id rows exist
+-- between a reload and the merge that collapses them, and a plain LEFT JOIN would fan out and
+-- multiply every row that matched. Measured 0 duplicates today, so this closes a latent hazard
+-- rather than a live defect.
+LEFT ANY JOIN content AS c ON c.content_id = d.content_id
 WHERE iv.first_active_at < {frozen_before:String}
 GROUP BY cohort_key
 ORDER BY cohort_key;

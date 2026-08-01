@@ -71,8 +71,14 @@ ORDER BY sessions DESC
 -- was measured, reasoning that the day holds 10,866 sessions. The budget promptly failed the
 -- content shape with TOO_MANY_BYTES at 2.14 MiB against a 2.11 MiB ceiling, which is the budget
 -- doing its job to its own author. Measured worst shape (evidence:
--- insight_bench_session_facts_app_version_health): content, 21,732 rows, 2,243,290 bytes.
+-- insight_bench_session_facts_app_version_health): content, 10,866 rows, 1,121,645 bytes.
 -- Ceilings below are 3x that.
+--
+-- RE-MEASURED after the ORDER BY change. The previous worst shape was 21,732 rows and 2,243,290
+-- bytes, so this looks like a halving, and only part of it is the key: that measurement carried
+-- TWO stored versions per session and this one carries one. The clean signal for the key is the
+-- granule count, which went from 3 of 3 to 1 of 1. Said plainly because a benchmark that claims
+-- a 2x win it did not earn is worse than one that claims nothing.
 --
 -- WHY 21,732 AND NOT 10,866: STORED VERSIONS. session_insight_facts is a ReplacingMergeTree and
 -- the refresh had run twice, so every session had two rows and the inner GROUP BY read both.
@@ -91,5 +97,11 @@ ORDER BY sessions DESC
 -- queries. Left alone deliberately, per the plan's own Phase 14 rule about not making a risky
 -- immutable-key migration for a theoretical benefit, and re-measured at ten times volume in
 -- Stage 5, which is the point at which it stops being noise.
-SETTINGS max_rows_to_read  = 65199,
-         max_bytes_to_read = 6729870;
+-- max_execution_time is a wall-clock ceiling, and timeout_before_checking_execution_speed = 0 is
+-- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
+-- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
+-- what a query SCANS and says nothing about how long it may run.
+SETTINGS max_rows_to_read  = 32598,
+         max_bytes_to_read = 3364935,
+         max_execution_time = 30,
+         timeout_before_checking_execution_speed = 0;

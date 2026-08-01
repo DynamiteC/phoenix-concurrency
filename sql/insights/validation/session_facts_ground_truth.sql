@@ -180,5 +180,8 @@ SELECT
 FROM ev
 LEFT JOIN iv  ON iv.sid  = ev.sid
 LEFT JOIN ret ON ret.sid = ev.sid
-LEFT JOIN content_src AS c ON c.content_id = ev.content_id
+-- LEFT ANY JOIN to stay symmetric with the optimized side. `content_src` is a CSV file view with
+-- unique keys so it cannot fan out, but if the two sides of a validation pair disagree about
+-- join semantics, the pair stops testing what it claims to test.
+LEFT ANY JOIN content_src AS c ON c.content_id = ev.content_id
 ORDER BY video_session_id;

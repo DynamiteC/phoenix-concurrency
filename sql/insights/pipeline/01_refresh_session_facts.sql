@@ -113,8 +113,10 @@ SELECT
     ev.sid                                          AS video_session_id,
     ev.user_id,
     ev.content_id,
-    -- LEFT JOIN, matching 01_derive_intervals.sql: a session whose content_id is missing from
-    -- the catalogue is still a session. Losing it would understate every insight.
+    -- LEFT, so a session whose content_id is missing from the catalogue is still a session:
+    -- losing it would understate every insight, the same reasoning as 01_derive_intervals.sql.
+    -- ANY, so the lookup cannot fan out. Those are two independent choices and the join below
+    -- makes both; 01_derive_intervals.sql makes only the first, which is flagged in the audit.
     c.title                                         AS title,
     c.category                                      AS category,
     c.video_type                                    AS video_type,
@@ -158,4 +160,9 @@ SELECT
 FROM ev
 LEFT JOIN iv  ON iv.sid  = ev.sid
 LEFT JOIN ret ON ret.sid = ev.sid
-LEFT JOIN content AS c ON c.content_id = ev.content_id;
+-- LEFT ANY JOIN, not LEFT JOIN, per clickhouse-best-practices rule query-join-use-any. This is a
+-- one-row-per-key lookup, and `content` is a ReplacingMergeTree: duplicate content_id rows exist
+-- between a reload and the merge that collapses them, and a plain LEFT JOIN would fan out and
+-- multiply every row that matched. Measured 0 duplicates today, so this closes a latent hazard
+-- rather than a live defect.
+LEFT ANY JOIN content AS c ON c.content_id = ev.content_id;

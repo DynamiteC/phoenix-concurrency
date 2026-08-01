@@ -59,6 +59,8 @@ previous values and are kept deliberately as the audit trail.
 | **`content_entry_cohorts`**, 8,530 cohorts at 0 diffs, retention measured at an instant not as not-yet-ended | `insight_parity_cohorts` | done |
 | **`playback_health_minute`**, 296 minute-tuples at 0 diffs, denominator documented | `insight_parity_health` | done |
 | Four insight benchmark queries, `raw_events` absent from every plan, budgets set from measurement | `insight_bench_*` | done |
+| **Insight layer audited against the 31 ClickHouse best-practice rules**, five fixes applied and one hazard closed | [`INSIGHT_RULES_AUDIT.md`](INSIGHT_RULES_AUDIT.md), `rebuild_insights_phoenix_next` | done |
+| Stage 5 ingestion path, batch size gated at both ends, lateness probes 4 of 4 | `ingest_10x_phoenix_next` | done |
 | **`session_insight_facts`**, the keystone, 10,866 sessions and 31 columns at 0 diffs vs an independent ground truth | `insight_parity_session_facts` | done |
 | Insight read cost: 6 shapes, `raw_events` absent from every plan, budget set from measurement | `insight_bench_session_facts_app_version_health` | done |
 | Insight refresh idempotence: 238,983 stored versions collapse to 119,491 rows under FINAL | `refresh_insights_phoenix_next` | done |

@@ -44,9 +44,16 @@ snapshot-plus-delta model, not by TTL.
 ```sql
 -- TTL toDateTime(event_date) + INTERVAL 90 DAY
 --   WHERE event_date >= toDate('2026-08-01')     -- never the frozen corpus
+-- SETTINGS ttl_only_drop_parts = 1
 ```
 
-Two properties any live clause must have: it is expressed against an event-time column and never
+`ttl_only_drop_parts = 1` is the third property and the one most easily left off. Without it, TTL
+expiry does not drop whole parts: it falls back to rewriting each affected part, which is the
+`ALTER TABLE DELETE` mutation path that the rest of this project avoids on purpose. A retention
+policy that quietly becomes a mutation is worse than no retention policy, because it arrives as a
+disk-IO incident rather than as a decision. With it, an expired partition is a metadata operation.
+
+Three properties any live clause must have: it is expressed against an event-time column and never
 against `ingested_at`, which is read-time-evaluated on pre-`ALTER` parts and would delete an
 arbitrary set; and it carries the frozen-slice exemption in the clause itself rather than in a
 comment above it.

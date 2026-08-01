@@ -105,10 +105,24 @@ CREATE TABLE IF NOT EXISTS session_insight_facts
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(session_start)
--- content_id leads because every insight question is asked about a title or a set of them, and
--- session_start is second because those questions are always bounded in time. Same reasoning as
--- concurrency_deltas: the dimension prunes, the timestamp orders.
-ORDER BY (content_id, session_start, platform, country, video_session_id);
+-- RE-KEYED after measurement, per clickhouse-best-practices rules schema-pk-cardinality-order and
+-- schema-pk-prioritize-filters. The first key was (content_id, session_start, platform, country,
+-- video_session_id), which put a 25,967-cardinality column ahead of platform at 15 and country at
+-- 5, so neither could prune anything. The benchmark measured exactly that: every filter shape read
+-- about 21,700 rows and the content shape read MORE bytes than unfiltered.
+--
+-- Measured cardinalities: toDate(session_start) about 30 per monthly partition, country 5,
+-- platform 15, content_id 3,366, session_start 25,967, video_session_id 119,491. Ascending, apart
+-- from the date leading country, which is deliberate: the one predicate every serving query
+-- carries is a time range, and the guidebook tiebreaker puts a known hot filter ahead of pure
+-- cardinality ordering.
+--
+-- PRIMARY KEY is a four-column prefix of ORDER BY, which is the point of separating them: the
+-- sparse index stays small while ORDER BY stays long enough to be a correct dedup key.
+-- video_session_id MUST remain last in ORDER BY. This is a ReplacingMergeTree and ORDER BY IS the
+-- dedup key, so dropping it would silently collapse two different sessions into one row.
+PRIMARY KEY (toDate(session_start), country, platform, content_id)
+ORDER BY (toDate(session_start), country, platform, content_id, session_start, video_session_id);
 
 -- TTL, written and NOT active. See docs/RETENTION.md for why nothing here is switched on: a rule
 -- expressed in days from now deletes the frozen corpus the moment now moves far enough.

@@ -50,12 +50,19 @@ GROUP BY minute
 HAVING active_sessions > 0
 ORDER BY minute
 -- READ BUDGET, set from measurement (evidence: insight_bench_health_incident_window): worst
--- shape 192,434 rows and 5,413,480 bytes. Ceilings are 3x.
+-- shape 96,217 rows and 2,706,740 bytes. Ceilings are 3x. The previous figure, 192,434 rows,
+-- was two stored versions of the same data, not twice the data.
 --
 -- The most expensive query here, and the reason is visible in the row count: the health table
 -- carries a row for every minute a dimension tuple was active, whether or not anything went
 -- wrong, so its cardinality tracks the minute snapshot rather than the incident count. Storing
 -- only troubled minutes would make this query cheap and the abandonment RATE unanswerable,
 -- because the denominator would be gone. Keep the rows, and revisit at Stage 5 volume.
-SETTINGS max_rows_to_read  = 577302,
-         max_bytes_to_read = 16240440;
+-- max_execution_time is a wall-clock ceiling, and timeout_before_checking_execution_speed = 0 is
+-- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
+-- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
+-- what a query SCANS and says nothing about how long it may run.
+SETTINGS max_rows_to_read  = 288651,
+         max_bytes_to_read = 8120220,
+         max_execution_time = 30,
+         timeout_before_checking_execution_speed = 0;

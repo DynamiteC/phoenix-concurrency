@@ -195,4 +195,9 @@ LEFT JOIN starts_per_minute   AS st USING (minute, content_id, platform, country
 LEFT JOIN plays_per_minute    AS pl USING (minute, content_id, platform, country, video_type, app_version)
 LEFT JOIN ends_per_minute     AS en USING (minute, content_id, platform, country, video_type, app_version)
 LEFT JOIN events_per_minute   AS ev USING (minute, content_id, platform, country, video_type, app_version)
-LEFT JOIN content             AS c  ON c.content_id = k.content_id;
+-- LEFT ANY JOIN, not LEFT JOIN, per clickhouse-best-practices rule query-join-use-any. This is a
+-- one-row-per-key lookup, and `content` is a ReplacingMergeTree: duplicate content_id rows exist
+-- between a reload and the merge that collapses them, and a plain LEFT JOIN would fan out and
+-- multiply every row that matched. Measured 0 duplicates today, so this closes a latent hazard
+-- rather than a live defect.
+LEFT ANY JOIN content             AS c  ON c.content_id = k.content_id;
