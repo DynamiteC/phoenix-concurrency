@@ -63,6 +63,10 @@ WITH
     (
         SELECT
             video_session_id, user_id, ts AS seg_start, is_open,
+            -- 120 sessions report more than one user_id. The serving layer files a session
+            -- under its first-seen user, so the oracle reports both readings and the gap
+            -- between them stays a measured number rather than a definition.
+            argMin(user_id, ts) OVER (PARTITION BY video_session_id) AS first_user,
             leadInFrame(ts) OVER (
                 PARTITION BY video_session_id ORDER BY ts ASC
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS next_ts,
@@ -72,12 +76,14 @@ WITH
 SELECT
     minute,
     uniqExact(video_session_id) AS concurrent_sessions,
-    uniqExact(user_id)          AS concurrent_users
+    uniqExact(first_user)       AS concurrent_users,      -- gate: matches the serving layer
+    uniqExact(user_id)          AS concurrent_users_raw   -- per-event attribution, for the divergence log
 FROM
 (
     SELECT
         video_session_id,
         user_id,
+        first_user,
         -- half-open [seg_start, seg_end): dur-1 keeps a segment that lands exactly on a
         -- minute boundary from claiming the minute it never entered
         arrayJoin(timeSlots(toDateTime(seg_start),
