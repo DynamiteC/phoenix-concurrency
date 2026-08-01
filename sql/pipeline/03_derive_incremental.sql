@@ -26,7 +26,8 @@ FROM
 (
     SELECT
         video_session_id, user_id, content_id, platform, country, app_version, video_type,
-        run_start, run_end
+        run_start, run_end,
+        sum(sign) AS s
     FROM session_minute_runs
     WHERE video_session_id IN (
         SELECT DISTINCT video_session_id FROM raw_events
@@ -34,8 +35,18 @@ FROM
           AND event_timestamp <  parseDateTimeBestEffort({to_ts:String}))
     GROUP BY video_session_id, user_id, content_id, platform, country, app_version, video_type,
              run_start, run_end
-    HAVING sum(sign) > 0   -- only retract what is currently asserted
-);
+    HAVING s > 0   -- only retract what is currently asserted
+)
+-- One -1 PER EXCESS ASSERTION, not one per group. A single -1 leaves a doubly-asserted run
+-- at +1 forever: the retract can then never catch up, and a run that was double-counted
+-- once is double-counted for life. Emitting exactly s retractions zeroes the group
+-- whatever state it is in, which makes every tick self-healing. Doubles are not
+-- hypothetical: raw_events keeps receiving inserts between this statement and the assert
+-- below, so a session can enter the assert's touched-set without having been retracted
+-- here. That race is unavoidable across two statements; with an exact retract the next
+-- tick that touches the session repairs it. Measured on live phoenix 2026-08-01: 1,165
+-- doubled and 832 negative run keys accumulated in the unfrozen slice before this fix.
+ARRAY JOIN range(toUInt32(s)) AS _r;
 
 INSERT INTO session_minute_runs
 WITH

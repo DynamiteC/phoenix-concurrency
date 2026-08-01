@@ -9,3 +9,6 @@ dist
 .venv
 .dual-graph/
 .idea/
+.derive_watermark.*
+.derive_watermark.*.lock
+derive_tick.*.log
