@@ -40,5 +40,6 @@ WITH
 SELECT
     video_session_id, user_id, content_id, platform, country, app_version, video_type,
     run[1]      AS run_start,
-    run[-1]     AS run_end
+    run[-1]     AS run_end,
+    1           AS sign     -- asserting a run; the incremental path is what ever writes -1
 FROM runs;

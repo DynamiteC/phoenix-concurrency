@@ -35,10 +35,15 @@ CREATE TABLE IF NOT EXISTS session_minute_runs
     app_version      LowCardinality(String),
     video_type       LowCardinality(String),
     run_start        DateTime,         -- first minute the session is active in
-    run_end          DateTime          -- last minute the session is active in, inclusive
+    run_end          DateTime,         -- last minute the session is active in, inclusive
+    -- +1 asserts a run, -1 retracts one previously asserted. An open session whose runs
+    -- grow is re-derived by writing -1 rows for what it had and +1 rows for what it has
+    -- now. The delta MV multiplies by sign, so the serving layer absorbs the correction
+    -- as two more additive rows. No mutation, no rebuild, no recompute of other sessions.
+    sign             Int8 DEFAULT 1
 )
-ENGINE = MergeTree
-ORDER BY (video_session_id, run_start);
+ENGINE = CollapsingMergeTree(sign)
+ORDER BY (video_session_id, run_start, run_end);
 
 -- ORDER BY puts dimensions FIRST and minute LAST, inverting the usual reflex on purpose:
 -- a cumulative sum must start at the first minute of the series, never at the start of the
@@ -69,6 +74,6 @@ SELECT
     content_id,
     app_version,
     d.1 AS minute,
-    d.2 AS delta
+    d.2 * sign AS delta      -- sign = -1 retracts the pair this run contributed before
 FROM session_minute_runs
 ARRAY JOIN [(run_start, 1), (run_end + INTERVAL 1 MINUTE, -1)] AS d;
