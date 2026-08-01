@@ -165,28 +165,72 @@ peak. That is an argument for the lead to accept or reject, not a verdict we awa
 
 | Priority | Fix | Status |
 |---|---|---|
-| P0 | Wire `demo/server.js:22-23` to `sql/queries/serving/*.sql` | Fix written, not wired |
-| P0 | Implement ClickStack / Langfuse / LibreChat | Not started |
-| P1 | Rule on test 17: honour first session end, or count playback after it | Awaiting decision |
-| P1 | Define and measure a lateness boundary; add an explicitly-written arrival column first | Not started |
-| P1 | Retire the stale `naive_baseline_gate` ledger row; resolve or accept `derive_idempotence` | Open |
-| P1 | Bound `WITH FILL` in `sql/queries/benchmark/*.sql`, or retire those files | Open |
-| P2 | Title / category support in the serving table | Not started |
-| P2 | Explain the 49,049-row query_log attribution in test 37 | Open |
-| P2 | TTL and retention; per-query read budgets | Not started |
-| P2 | Label the empty `video_type` in the dashboard | Open |
+| P0 | Wire the dashboard to `sql/queries/serving/*.sql` | **CLOSED.** `demo/` removed entirely. The Next.js console reads `serving/` off disk and looks columns up by name; `scripts/check_query_sources.sh` fails the build if any route re-inlines SQL. Verified serving 88.06 through the running app. |
+| P0 | Implement ClickStack / Langfuse / LibreChat | **CLOSED.** ClickStack running, HyperDX 2.33.0, 5 panels on `concurrency_deltas`, proven through HyperDX's own proxy to read our Cloud service and not its bundled one. `[V:clickstack_integration]`, `docs/clickstack.md`. |
+| P1 | Rule on test 17: honour first session end, or count playback after it | **CLOSED, and the diagnosis in the original review was wrong.** The 14 multi-end sessions account for zero of the 385 intervals; the cause is reactivating events after the LAST end. Rule applied to all three state-machine implementations: decision D8. Test 17 now reports 0 invalid intervals, 0 beyond tolerance, 0 offending sessions. |
+| P1 | Define and measure a lateness boundary; add an explicitly-written arrival column first | **STILL OPEN.** Owner unassigned, tracked in `docs/STATUS.md`. |
+| P1 | Retire the stale `naive_baseline_gate` ledger row; resolve or accept `derive_idempotence` | **CLOSED.** `LEDGER.tsv` gained a `fail_kind` column; both rows are marked `finding`, meaning the gate worked and recorded a real negative result rather than being broken. |
+| P1 | Bound `WITH FILL` in `sql/queries/benchmark/*.sql`, or retire those files | **CLOSED by retiring them.** `sql/queries/benchmark/` no longer exists. The two files with published wrong numbers moved to `sql/queries/known-wrong/` as regression fixtures with banners; the other two had no reader and were deleted. |
+| P2 | Title / category support in the serving table | Still open. Owner unassigned. |
+| P2 | Explain the 49,049-row query_log attribution in test 37 | Partly answered: test 37 now reports 16,384 rows against `phoenix.concurrency_deltas` for a platform-filtered shape, which is the pruned figure. The earlier number aggregated several shapes. |
+| P2 | TTL and retention; per-query read budgets | Budgets **done** and re-verified after the rebuild: worst shape 30,662 rows against the committed 80,712 ceiling. TTL still open, owner unassigned. |
+| P2 | Label the empty `video_type` in the dashboard | Still open. Owner unassigned. |
+
+### Re-validation, 2026-08-01, after the fixes above
+
+`./scripts/runbook_validation.sh` re-run. Artifact: `[V:runbook_validation]`. What moved:
+
+| Check | Before | After |
+|---|---|---|
+| Test 17 `invalid_intervals` | 385 | **0** |
+| Test 17 `beyond_90s_tolerance` | 336 | **0** |
+| Test 17 `offending_sessions` | 21 | **0** |
+| Test 17 `overshoot_max_s` | 2,171 | **0** |
+| Test 17 `peak_all_sessions` vs `peak_excluding_offenders` | 2,829 vs 2,829 | **2,828 vs 2,828**, now identical because there are no offenders |
+| Test 28 independent LOCF average | 88.20 | **88.06 over 1,440**, matching the serving query exactly by an independent path |
+| Oracle parity, both paths | 3,664 minutes, 0 diffs | **3,663 minutes, 0 diffs**, against the queries actually shipped |
+
+Two things worth flagging rather than burying.
+
+**`sessions_with_events_after_last_end` is 239, not 21.** Far more sessions emit events after their
+last end than ever produced an over-running interval, because most of those events are neutral
+telemetry that never reopened the session. The 21 were the subset where a reactivating event landed
+first. The rule now bounds all 239 identically, which is why the offender count is 0 rather than 218.
+
+**The two known-wrong values reproduce, but not to the digit.** Test 30 returns 247.07 against the
+originally published 246.98, and test 29 returns 185.93 against 185.95. They moved because the
+underlying data moved: the end-bound fix removed 385 intervals, so the wrong queries are now wrong
+about slightly different data. Their denominators are unchanged and are the point: test 29 still
+averages 682 rows spanning 00:10 to 11:31 instead of 1,440 minutes spanning the day.
 
 ## Sign-off
 
 ```text
 [ ] APPROVED
-[ ] APPROVED WITH CONDITIONS     <- implementer's recommendation, see REPLY.md
-[x] REWORK REQUIRED              <- what your decision rule yields on these results
+[x] APPROVED WITH CONDITIONS     <- implementer's recommendation after the re-validation above
+[ ] REWORK REQUIRED              <- what the original results yielded, before the fixes
 [ ] REJECTED
 ```
 
+**The verdict this file originally recorded was REWORK REQUIRED**, driven by the missing external
+integration, a wrong number on the shipped dashboard path, and the unresolved interval defect. All
+three are closed and re-measured above.
+
+**The conditions**, stated as conditions rather than presented as done:
+
+1. The **lateness boundary** (TASK 3.4) is still undefined. Update handling is graded explicitly, so
+   this is a real gap and not a nicety. Owner unassigned.
+2. The **seeding test** (TASK 3.3) has not been re-run with differing upper bounds, so its earlier
+   pass remains a tautology rather than evidence.
+3. `sql/queries/validation/data_quality.sql` carries **no frozen predicate** despite instructing
+   that it be run after every load, so its counts are not comparable between runs.
+4. The ClickStack tiles are proven to read the right data through HyperDX's own query proxy; their
+   **rendered appearance is unverified** because no password was typed into the login form.
+
+Every open item has a row in `docs/STATUS.md` with an owner, or an explicit "unassigned".
+
 | Role | Name | Date | Approval |
 |---|---|---|---|
-| Implementer | | 2026-08-01 | Submitted for review |
+| Implementer | | 2026-08-01 | Re-submitted after re-validation, conditions listed above |
 | Reviewer | | | |
 | Team lead | | | |
