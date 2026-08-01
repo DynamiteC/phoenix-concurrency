@@ -74,9 +74,17 @@ dump() {
   } | LC_ALL=C sort > "$out"
 }
 
-echo "== reference database $REF, built from sql/schema/ and left empty" >&2
+# A database is one layer or two. phoenix is the concurrency engine alone; phoenix_next also
+# carries the insight layer from sql/insights/schema/. Stated per call rather than sniffed from
+# the target, because a detector that infers what it is supposed to find will always agree with
+# whatever it finds.
+LAYERS="sql/schema/"
+[ "${INSIGHTS:-0}" = "1" ] && LAYERS="$LAYERS + sql/insights/schema/"
+
+echo "== reference database $REF, built from $LAYERS and left empty" >&2
 ch --query "DROP DATABASE IF EXISTS $REF"
 ./scripts/init_db.sh "$REF" >/dev/null
+[ "${INSIGHTS:-0}" = "1" ] && ./scripts/init_insights.sh "$REF" >/dev/null
 
 echo "== dumping structure: $REF and $TARGET" >&2
 dump "$REF"    "$TMP/ref.tsv"

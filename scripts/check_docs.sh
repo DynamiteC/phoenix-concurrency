@@ -104,7 +104,8 @@ if [ "${SKIP_DRIFT:-0}" = "1" ]; then
 else
   DRIFT_QUIET=1 DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv' \
     ./scripts/schema_drift.sh phoenix      2>&1 | grep -v 'Unknown settings' || fail=1
-  DRIFT_QUIET=1 ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1
+  DRIFT_QUIET=1 INSIGHTS=1 \
+    ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1
 fi
 
 exit "$fail"
