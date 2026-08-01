@@ -41,6 +41,11 @@ WITH
             argMin(country, event_timestamp)     AS country,
             argMin(app_version, event_timestamp) AS app_version
         FROM raw_events
+        -- Frozen slice, same as every other validated query. Without this the naive table is
+        -- built from the corpus PLUS the live stream while the corrected table it is compared
+        -- against may not be, and the overcount headline becomes a comparison of two
+        -- different datasets.
+        WHERE event_timestamp < {frozen_before:String}
         GROUP BY video_session_id
     ),
     runs AS

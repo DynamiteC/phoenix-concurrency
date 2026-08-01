@@ -24,7 +24,7 @@ Every table engine is a `Shared*MergeTree` variant, which is Cloud's replicated
 implementation, not the `MergeTree` names in `sql/schema/`.
 
 `[A]` **Introspection ran over the native protocol via `scripts/ch.sh`, not the ClickHouse
-MCP server.** `TASK.md` §0.5 mandates MCP for introspection. No ClickHouse MCP server is
+MCP server.** `TASK.md` section 0.5 mandates MCP for introspection. No ClickHouse MCP server is
 exposed in this session; a tool search returned none. `ch.sh` reaches the same `system.*`
 tables over port 9440, so nothing is unmeasurable as a result, but the deviation is recorded
 rather than papered over. **Falsified by:** an MCP ClickHouse server appearing in the tool
@@ -48,7 +48,7 @@ number that happened to be true when someone looked.
    ones, because retractions are stored rather than applied.
 
 Every number below is an aggregate under an explicit `event_timestamp < {frozen_before}`
-predicate. That is what makes the gate in §4 reproducible rather than lucky.
+predicate. That is what makes the gate in section 4 reproducible rather than lucky.
 
 ## 1. What exists
 
@@ -76,7 +76,7 @@ reports `QueryFinish` and `no exceptions` for all three: `raw_events_mv` x835,
 `concurrency_deltas_mv` x86, `user_concurrency_deltas_mv` x60. None has silently failed.
 
 `[V:inventory_phoenix]` `raw_events` and `content` both carry an `ingested_at DateTime`
-column that is **not** in the committed DDL. It was added by an out-of-band `ALTER`. See §3.
+column that is **not** in the committed DDL. It was added by an out-of-band `ALTER`. See section 3.
 
 `[V:inventory_phoenix]` Two scratch tables, `open_test_sessions` and
 `open_test_bystanders`, are left in `phoenix` by `scripts/test_open_sessions.sh`. They are

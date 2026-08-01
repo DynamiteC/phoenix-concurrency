@@ -40,6 +40,21 @@ else
   fail=1
 fi
 
+# House style, enforced rather than remembered: no emoji, no em-dashes, no section sign.
+# Scoped to files this team authors. docs/problem/ is supplied by the organisers, TASK.md and
+# the validation checklist are handed to us, and rewriting someone else's document to satisfy
+# our own style rule would be worse than the violation.
+style=0
+authored="$(git ls-files 'docs/*.md' 'scripts/*.sh' 'sql/**/*.sql' 'README.md' 2>/dev/null | grep -v '^docs/problem/' || true)"
+for f in $authored; do
+  [ -f "$f" ] || continue
+  if LC_ALL=C grep -nP '\xc2\xa7|\xe2\x80\x94|[\x{1F300}-\x{1FAFF}]|[\x{2600}-\x{27BF}]' "$f" 2>/dev/null; then
+    echo "FAIL: $f contains an emoji, em-dash, or section sign (spell out 'section')" >&2
+    style=1
+  fi
+done
+[ "$style" -eq 0 ] && echo "ok: no emoji, em-dashes, or section signs in authored files" || fail=1
+
 # An artifact whose file has been deleted or renamed leaves the ledger pointing at nothing.
 dangling=0
 while IFS=$'\t' read -r _ _ _ path _; do
