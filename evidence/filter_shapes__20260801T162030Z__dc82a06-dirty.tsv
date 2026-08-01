@@ -18,3 +18,11 @@ platform	12	11	16384	147533	2	1	1303494	and((minute in (-Inf, 1785542399]), (pla
 country	11	NA	NA	NA	NA	NA	NA	and((minute in (-Inf, 1785542399]), (country in ['india', 'india'])) ; granules 4/4
 content	12	14	30662	490592	4	1	1091406	and((minute in (-Inf, 1785542399]), (content_id in [2078157818, 2078157818])) ; granules 4/4
 video_type	12	11	30662	275989	4	1	1357262	and((minute in (-Inf, 1785542399]), (video_type in ['vod', 'vod'])) ; granules 4/4
+app_version	11	11	30662	276884	4	1	1268326	and((minute in (-Inf, 1785542399]), (app_version in ['6.34.8', '6.34.8'])) ; granules 4/4
+platform+country	12	11	16384	163938	2	1	1488919	and((minute in (-Inf, 1785542399]), and((country in ['india', 'india']), (platform in ['ANDROID_PHONE', 'ANDROID_PHONE']))) ; granules 2/4
+content+platform	11	12	16384	278605	2	1	1279386	and((minute in (-Inf, 1785542399]), and((content_id in [2078157818, 2078157818]), (platform in ['ANDROID_PHONE', 'ANDROID_PHONE']))) ; granules 2/4
+#
+# window	2026-07-26 00:00:00 -> 2026-07-27 00:00:00
+# query	sql/queries/serving/peak_average.sql
+# use_query_cache	0
+# service	26.2.1.525

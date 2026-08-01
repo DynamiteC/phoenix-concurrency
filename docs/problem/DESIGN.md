@@ -389,3 +389,68 @@ saving is the seven deferred columns being fetched only for the eight rows that 
 and beneficial to session-detail and top-N drill-down queries, which is where a dashboard
 would use it. Recorded in both directions so that neither the negative nor the positive has
 to be rediscovered.
+
+---
+
+## Invariant audit: which gates are sum-shaped, and therefore asleep
+
+Required by operating rule 0.5. A previous session found that a second derive doubles concurrency
+from 2,829 to 5,658 and that neither the closure check nor the per-session-minute overlap check
+noticed. This is the audit of every gate the pipeline relies on, labelled by whether it can detect
+duplication at all.
+
+**Any invariant that is a sum is structurally incapable of detecting duplication.** A duplicated
+run contributes both its `+1` and its `-1`, so every sum over it is unchanged. This is not a bug in
+the invariant; it is what a sum means.
+
+| Gate | Shape | Detects duplication | Note |
+|---|---|---|---|
+| `sum(delta) = 0` (closure) | **sum** | **No** | Every duplicated `+1` carries its own `-1`. Stays 0 across a doubled dataset. |
+| `sum(sign)` asserted-run count | **sum** | **No** | Doubles silently, and there is no independent expected value to compare it against. |
+| `max_runs_per_session_minute = 1` | count after `GROUP BY` | **No** | The duplicate has an identical key, so `GROUP BY` collapses it. This gate detects OVERLAPPING runs, which is a different failure. It was once credited with this catch; see `docs/corrections.md`. |
+| `max(sum(sign)) per run = 1` | **max of a sum** | **Yes** | The only gate here that fires. It counts assertions of one identity rather than summing across identities. |
+| `min(concurrency) >= 0` | extremum | **No** | A doubled curve is still non-negative. |
+| Oracle parity, row-by-row diff | **set comparison** | **Yes** | Independent implementation, compared per minute. A doubled serving layer disagrees at every minute. |
+| `intervals_past_last_session_end = 0` | count of a predicate | n/a | Detects the D8 defect specifically. Not sum-shaped, so not blind, but also not a duplication check. |
+| `rebuild_idempotence` row-by-row diff | **set comparison** | **Yes** | Two rebuilds diffed row by row. A doubling in one and not the other shows up as diff lines. |
+
+**What this means operationally.** Duplication is covered by exactly three things: the structural
+refusal in `derive.sh`, the `max(sum(sign))` post-condition, and oracle parity. The shadow-and-swap
+rebuild (decision D9) is what makes the refusal survivable rather than a dead end. Adding more
+sum-shaped invariants would add confidence without adding coverage, which is worse than adding
+nothing.
+
+## The sparse-series bug class has two subtypes, with opposite signs
+
+Required by operating rule 0.6, and extending it. The rule as written describes only one of the two
+ways to read a sparse delta table as if it were dense, and it is not the one this repo shipped.
+
+A row in `concurrency_deltas` is a **change**, not a level. A minute with no row means concurrency
+did not change, so the value carries forward. It does not mean concurrency was zero.
+
+| Subtype | Mechanism | Bias | Measured |
+|---|---|---|---|
+| `COALESCE-ZERO` | minute spine + `LEFT JOIN` + `ifNull(..., 0)`, then aggregated. Missing minutes scored as **zero**. | **Low** | 87.82 against a true 88.20 |
+| `SPARSE-AVG` | no densification, or `WITH FILL` with no `FROM`/`TO`. Missing minutes **omitted from the denominator**. | **High** | 185.95 and 246.98 against a true 88.20 |
+
+Same root cause, opposite direction. `COALESCE-ZERO` is what rule 0.6 describes and it appeared only
+in reference queries. **Every instance that reached a user was `SPARSE-AVG`**, so a reader who knows
+only the zero-fill form will not recognise the one that actually shipped.
+
+**Peak is immune. Nothing else is, including p95.** Peak can only occur at a delta boundary, which
+is why it returned 2,829 under every variant and survived undetected for so long. That immunity does
+not extend to quantiles: the 95th percentile over boundary rows is a different distribution from the
+95th percentile over minutes, because the quiet minutes that pull it down are precisely the rows a
+sparse read omits. The merged dashboard shipped p95 over the sparse series for exactly this reason,
+and it is now computed after densification.
+
+**The correct forms, all three in use here:**
+
+1. Running sum plus a **bounded** `WITH FILL FROM ... TO ... INTERPOLATE`, in `sql/queries/serving/`.
+   `FROM`/`TO` are mandatory: without them the fill spans only the first to the last existing row.
+2. `ASOF LEFT JOIN` carry-forward, in `scripts/runbook_validation.sh`, as an independent reference.
+3. Gap-weighted `sum(c * held_minutes) / sum(held_minutes)`, in `scripts/ground_state.sh`, which
+   needs no spine at all.
+
+The validation scaffolding is not exempt. The sweep covered `scripts/`, `docs/` and the frontend,
+not only `sql/queries/`, because the reference query built to check the fix had the bug.

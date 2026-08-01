@@ -24,6 +24,9 @@ successfully and returned the wrong thing.
 | Distinct `event` values | 46 | **47** | 1 value | `frozen_slice_stability` | `e528698` |
 | **Average concurrency, full day** | **246.98** | **88.20** | **2.8x over** | `filter_shapes` | `a5bca8c` |
 | Average concurrency, curve query | 185.95 | **88.20** | 2.1x over | `filter_shapes` | `a5bca8c` |
+| Average, full day, after the end-bound fix | 88.20 | **88.06** | restated | `rebuild_swap_phoenix_next` | `dc0d374` |
+| Peak concurrent sessions, after the end-bound fix | 2,829 | **2,828** | restated | `rebuild_swap_phoenix_next` | `dc0d374` |
+| Oracle-parity minutes, after the end-bound fix | 3,664 | **3,663** | restated | `oracle_parity` | `dc0d374` |
 
 ## What went wrong, case by case
 
@@ -123,3 +126,77 @@ minutes 1,592. `[V:naive_baseline]`
 The original FAIL artifact is kept and still referenced. A gate that failed, was examined, and
 was corrected is a better story than a gate that never failed, and deleting the failing
 artifact would have removed the only evidence that the check was ever exercised.
+
+
+## Self-caught, before anyone else looked
+
+The four above were caught by a gate. These were caught by re-running something we had already
+written down, which is a different and less comfortable category: each one was a claim published
+in this repo on the strength of reasoning rather than execution. Operating rule 0.1 exists because
+of them.
+
+### An invariant was credited with a catch it cannot make
+
+`docs/` stated that `max_runs_per_session_minute` detected the duplicate derive. It does not, and
+it cannot. That invariant groups by `(video_session_id, run_start, run_end)`, so a duplicated run
+has an identical key and `GROUP BY` collapses it to one row. Running the query proved it stays at 1
+across a doubled dataset.
+
+The general form is worth more than the instance, and it is now written into
+`docs/problem/DESIGN.md`: **any invariant that is a sum is structurally incapable of detecting
+duplication**, because every duplicated `+1` brings its own `-1`. Closure stays 0. The only
+invariant that catches it is `max(sum(sign))` per run, which counts assertions rather than
+summing them.
+
+Caught by: running the query instead of trusting the sentence. Fixed in `33cc777`.
+
+### A reference average scored gap minutes as zero
+
+The reference query used to validate the average built a minute spine, `LEFT JOIN`ed the deltas and
+wrapped them in `ifNull(concurrency, 0)`. That is the exact bug class the serving query had just
+been fixed for, reproduced in the scaffolding built to check the fix. It returned **87.82** against
+a true **88.20**, biased low, and it was published as `correct_average`.
+
+Caught by an independent ASOF carry-forward reference agreeing with the fixed serving query at
+88.20 and disagreeing with the spine reference. Both paths are now kept side by side in
+`scripts/runbook_validation.sh`, the biased one emitted under the name
+`reference_query_average_BIASED_LOW` so it can never be mistaken for the answer again.
+
+**The validation scaffolding is not exempt from the bug it validates.** That is the lesson, and it
+is why the carry-forward sweep covered `scripts/` and not only `sql/queries/`.
+
+### "The demo serves 246.98" was never true
+
+`docs/review/` and `TASK.md` both recorded that the demo dashboard was displaying a wrong average.
+It was not displaying anything. `demo/server.js` never passed the `frozen_before` parameter that
+the queries it loaded had required since `d4f2906`, so both of its data endpoints returned HTTP
+500. The demo was broken, not wrong.
+
+This mattered beyond bookkeeping: it meant the wrong number a judge could actually have seen came
+from the merged Next.js dashboard, which nobody was tracking, and not from the retired demo, which
+everybody was. Caught by reading the commit order rather than the claim. `demo/` is now removed.
+
+### The root cause of the interval overshoot was misattributed
+
+`TASK.md` recorded the 385 over-running intervals as caused by the 14 sessions carrying multiple
+`VideoSessionEnd` events. Measured: those sessions account for **zero** of the 385.
+
+The real cause is reactivating events arriving after a session's last end (38 `resume`, 28
+`AppForegrounded`, 13 `VideoPlay` across the 21 affected sessions), which flip `is_open` back to 1,
+after which neutral telemetry carries that reopened state forward for up to 2,081 seconds.
+
+Worth recording because the wrong diagnosis implies a wrong fix: deduplicating end events, the
+obvious response to "duplicate end events", would have changed nothing at all. Caught by counting
+which sessions the overshooting intervals actually belonged to. Fixed in `dc0d374`, decision D8.
+
+### An estimate of the fix did not reproduce the fix
+
+Before implementing the end bound, its impact was estimated at **87.90** by clamping the
+already-derived intervals. The implemented rule measured **88.06**.
+
+The estimate was not wrong arithmetic; it was the wrong operation. Clamping derived output is not a
+preview of re-deriving under a bound, because the old derive's `leadInFrame` neighbours included
+the post-end events, so `seg_end` differed for intervals *before* the last end too. Recorded so
+that the next person who wants to preview a pipeline change knows that post-hoc clamping will not
+give them one. Two independent paths then agreed on 88.06: the shipped delta-cumsum query and a
+brute-force interval explosion over a fixed 1,440-minute denominator.

@@ -61,15 +61,24 @@ Nothing here is quoted from memory.
 
 | Claim | Number | Reproduce |
 |---|---|---|
-| Peak concurrent sessions | 2,829 at 2026-07-26 10:56 | `./scripts/ground_state.sh` |
+| Peak concurrent sessions | **2,828** at 2026-07-26 10:56 | `./scripts/ground_state.sh` |
+| Average concurrency, all 1,440 minutes of that day | **88.06** | `./scripts/bench.sh` |
+| Average concurrency, the 634 minutes with an audience | **200.00** | `./scripts/bench.sh` |
 | Naive session-span counting overstates peak by | **32.3 percent** | `./scripts/naive_baseline.sh` |
 | Minutes where naive invents an audience | 1,592 | `./scripts/naive_baseline.sh` |
-| Serving vs brute-force oracle | 3,664 minutes, **0 diffs** | `./scripts/parity.sh` |
+| Serving vs brute-force oracle | **3,663** minutes, **0 diffs**, both paths | `./scripts/parity.sh` |
 | Open sessions absorbed incrementally | 5,316 minutes, **0 diffs** | `./scripts/test_open_sessions.sh 30` |
-| Unfiltered query reads | 26,904 rows in 10 ms | `./scripts/bench.sh` |
+| Intervals extending past their session's last end | **0**, was 385 | `./scripts/rebuild_swap.sh` |
+| Full rebuild run twice, derived tables diffed | **0 diff lines**, 5 of 5 tables | `./scripts/prove_idempotence.sh` |
+| Frozen slice stable under concurrent writes | 34 metrics, **0 differing lines**, 2,528 rows ingested between runs | `./scripts/frozen_gate.sh 120` |
+| Worst-shape query reads | 30,662 rows in 12 ms, budget 80,712 | `./scripts/bench.sh` |
 | Platform filter prunes to | 16,384 rows, 2/4 granules | `./scripts/bench.sh` |
 | Full rebuild, CSV to verified serving layer | **70 seconds** | `./scripts/rehearse_runbook.sh` |
 | Data-quality invariants | 6 of 6 at required value | `./scripts/ground_state.sh` |
+
+Peak was 2,829 and the average 88.20 until the end-bound fix (decision D8) removed 385 intervals
+that ran past their session's last `VideoSessionEnd`. Every restated figure is listed in
+[`docs/corrections.md`](docs/corrections.md).
 
 ## Documentation
 
@@ -79,7 +88,9 @@ Nothing here is quoted from memory.
 | [`docs/GROUND_STATE.md`](docs/GROUND_STATE.md) | What is actually on the server, measured |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
 | [`docs/database_details.md`](docs/database_details.md) | Physical reference, plus the ClickHouse best-practice audit |
-| [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Decisions, trade-offs, the filter-shape read table |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every modelling decision, its options, and what each cost |
+| [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Trade-offs, the filter-shape read table, the invariant audit |
+| [`docs/clickstack.md`](docs/clickstack.md) | The ClickStack integration, and how to rebuild it from nothing |
 | [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
 | [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) | Exact steps for the sealed drop, rehearsed |
 | [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) | Any claim to the command that produced it, in one hop |
@@ -88,14 +99,17 @@ Nothing here is quoted from memory.
 ## Layout
 
 ```
-docs/problem/   problem statement + data dictionary (given, do not edit)
-docs/           assumptions.md, the living decision log
-sql/schema/     DDL, one file per table
-sql/queries/    benchmark and validation queries
-scripts/        load.sh (CSV -> ClickHouse), profile.sh (dataset facts)
-frontend/       Next.js (App Router, TypeScript) dashboard, see frontend/README.md
-pitch/          slides and demo notes
-data/           gitignored, the CSVs never enter version control
+docs/problem/       problem statement + data dictionary (given, do not edit)
+docs/               STATUS.md first, then DECISIONS.md and corrections.md
+sql/schema/         DDL, one file per table
+sql/queries/serving/     the ONLY home for shipped query text
+sql/queries/validation/  oracle and data-quality queries
+sql/queries/known-wrong/ superseded queries, kept as regression fixtures
+docker/clickstack/  ClickStack compose file, see docs/clickstack.md
+scripts/            load.sh (CSV -> ClickHouse), profile.sh (dataset facts)
+frontend/           Next.js (App Router, TypeScript) dashboard, see frontend/README.md
+pitch/              slides and demo notes
+data/               gitignored, the CSVs never enter version control
 ```
 
 ## Getting started
