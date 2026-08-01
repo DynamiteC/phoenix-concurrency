@@ -5,6 +5,12 @@ Server `26.2.1.525`, primary database `phoenix`. Structural facts read live from
 `system.tables`, `system.columns` and `system.parts` on 2026-08-01, not from the files in
 `sql/`: those have drifted from the live server before and cost a day.
 
+**Regenerated 2026-08-01 after a Cloud cleanup.** Seven scratch databases and three
+test-scaffolding tables inside `phoenix` were dropped, taking the service from nine databases to
+two. Every figure below was re-read after that, so this file describes the service as it stands
+rather than as it accumulated. What was removed and why is in
+[the databases section](#the-databases-on-this-service).
+
 This document is meant to be readable on its own. If you want the field-by-field business
 meaning of the two source CSVs, that is [`problem/dataset_details.md`](problem/dataset_details.md).
 If you want only the reasoning narrative without the physical reference,
@@ -23,9 +29,15 @@ Live ingest keeps writing into `phoenix.raw_events` while we work. So every coun
 Every validation and benchmark figure in this repo is on the **frozen slice**. Live figures are
 quoted below only to describe physical storage (parts, bytes), and they carry the timestamp of
 the read. That is why a row count here can differ from the same table's count in
-`DATA_MODEL.md`: at the read below, `raw_events` held **960,851 live rows** of which
-**905,558 are frozen**, spanning `2026-07-14 15:43:58.144` to `2026-08-01 13:20:21.559`,
-across 12,412 sessions and 11,164 users.
+`DATA_MODEL.md`: at the read below, `raw_events` held **2,121,230 live rows** of which
+**905,558 are frozen**, spanning `2026-07-14 15:43:58.144` to `2026-08-01 16:53:48.630`,
+across 109,258 live sessions and 108,010 live users.
+
+Contrast those live session and user counts with the frozen slice's **10,866 sessions and 9,618
+users**, and the reason the freeze predicate is not optional becomes arithmetic rather than
+argument: the live stream has added an order of magnitude more session ids than the validated
+corpus contains. Any figure quoted without the predicate is a figure about the replay, not about
+the dataset we were given.
 
 The freeze predicate is `event_timestamp < {frozen_before:String}`, injected into every query by
 `scripts/ch.sh`. It is deliberately **not** `ingested_at`. `ingested_at` was added by a later
@@ -79,18 +91,60 @@ later.
 
 ## The databases on this service
 
+Two, as of the 2026-08-01 cleanup:
+
 ```
-phoenix                     the real one: validated corpus + live ingest
-phoenix_parity_incr         same schema, built by the INCREMENTAL path, for oracle parity
-phoenix_open_test           open-session fixture: sessions still running at the cutoff
-phoenix_open_truth          one-pass batch truth for the same fixture, to diff against
-phoenix_scratch_rehearsal   throwaway, produced by rehearsing the unseen-day runbook
-phoenix_scratch_openday     throwaway, partial-day rebuild scratch
+phoenix    the real one: validated corpus + live ingest      12 tables, 27.60 MiB
+default    ClickStack's OpenTelemetry schema, written by
+           the HyperDX collector, see clickstack.md          12 tables, 64.58 KiB
 ```
 
-Plus the ClickHouse-supplied `default`, `system`, `information_schema` and `INFORMATION_SCHEMA`.
+Plus the ClickHouse-supplied `system`, `information_schema` and `INFORMATION_SCHEMA`.
 
-**One database per dataset generation.** This is the structural replacement for the social rule
+`phoenix` now holds **exactly** the 12 objects `sql/schema/` defines, with nothing else. That was
+not true before the cleanup, and the discrepancy is worth naming because it is the failure mode this
+section exists to prevent: a live database that has drifted from its own versioned DDL.
+
+### What was removed, and why none of it needed keeping
+
+Seven scratch databases, roughly 26 MiB. Every one is **self-healing**: the script that owns it
+begins with `DROP DATABASE IF EXISTS` and rebuilds it, so a dropped scratch database is a cache
+miss rather than a loss.
+
+| Dropped | Recreated by |
+|---|---|
+| `phoenix_parity_incr` | `scripts/parity.sh` |
+| `phoenix_scratch_rehearsal` | `scripts/rehearse_runbook.sh` |
+| `phoenix_scratch_openday` | `scripts/open_session_demo.sh` |
+| `phoenix_open_test`, `phoenix_open_truth` | `scripts/test_open_sessions.sh` |
+| `phoenix_scratch_keyorder` | `scripts/key_order_experiment.sh` |
+| `phoenix_next` | `scripts/rebuild_swap.sh` |
+
+`phoenix_next` was the odd one out and got an explicit decision rather than a sweep.
+`rebuild_swap.sh --keep-shadow` leaves the **previous** derived tables there after a swap, so it
+was the one-command rollback for decision D8. It was dropped once parity passed 4 of 4 and
+idempotence passed 5 of 5 on the new tables, on the grounds that
+`git revert dc0d374 && ./scripts/rebuild_swap.sh` reproduces the old state in 90 seconds
+`[V:runbook_rehearsal]`. A rollback that needs a 90-second command is still a rollback.
+
+Three tables were also dropped from **inside `phoenix`**, which matters more than the scratch
+databases because they were test scaffolding living in production and absent from `sql/schema/`, so
+a fresh `init_db.sh` would never have created them:
+
+| Dropped from `phoenix` | Was | Recreated by |
+|---|---|---|
+| `concurrency_deltas_naive` | 15,725 rows, the deliberately wrong session-span baseline | `scripts/naive_baseline.sh`, `CREATE TABLE IF NOT EXISTS` then `TRUNCATE` |
+| `open_test_sessions` | 30 rows, open-session fixture | `scripts/test_open_sessions.sh`, `CREATE OR REPLACE TABLE` |
+| `open_test_bystanders` | 200 rows, sessions that must not move | `scripts/test_open_sessions.sh`, `CREATE OR REPLACE TABLE` |
+
+The evidence artifacts those tables produced are unaffected: they live in `evidence/` and are cited
+from `LEDGER.tsv`, which is the whole point of writing findings to files instead of leaving them in
+a database.
+
+**One database per dataset generation still holds** as the rule for anything new. The cleanup
+removed spent scratch, not the convention.
+
+This is the structural replacement for the social rule
 "announce your DDL", which has now failed twice: an out-of-band `ALTER` added a column to a table
 mid-run and cost a day. It also makes the unseen day two commands
 
@@ -103,10 +157,12 @@ rather than an improvised pipeline at hour 22. The full sequence is
 [`RUNBOOK_UNSEEN_DAY.md`](RUNBOOK_UNSEEN_DAY.md), rehearsed end to end with per-step wall clock
 `[V:runbook_rehearsal]`.
 
-`phoenix_parity_incr` deserves a note: it is the same schema built entirely by the incremental
-path (`03_derive_incremental.sql`) rather than the batch path, so `foreground_intervals` is empty
-in it **by design**. Diffing its serving output against `phoenix` is how we know the two paths
-agree `[V:oracle_parity]`.
+`phoenix_parity_incr` deserves a note even though it no longer exists between runs: `parity.sh`
+rebuilds it from scratch every time, as the same schema built entirely by the incremental path
+(`03_derive_incremental.sql`) rather than the batch path, so `foreground_intervals` is empty in it
+**by design**. Diffing its serving output against `phoenix` is how we know the two paths agree
+`[V:oracle_parity]`. It is transient on purpose: a parity database that survived between runs could
+be compared against a `phoenix` it was never derived alongside.
 
 **Every engine is a Cloud `Shared*` variant.** The DDL in `sql/schema/` says `MergeTree`,
 `SummingMergeTree`, `CollapsingMergeTree`; ClickHouse Cloud substitutes `SharedMergeTree` and
@@ -120,22 +176,24 @@ the first time, which is the only reason it is mentioned.
 flowchart TD
     CSV["ch-hackathon-raw-data.csv<br/>232 MB"] -->|load.sh| LAND
     CCSV["ch-hackathon-content-data.csv<br/>33,464 rows"] -->|load.sh| CONTENT[("content<br/>ReplacingMergeTree<br/>33,464 rows, 220 KiB")]
+%% Every figure in this diagram was re-read from system.parts on 2026-08-01 after the cleanup.
+%% raw_events keeps growing while ingest runs, so its live count is a reading, not a constant.
 
     LAND["raw_events_landing<br/>ENGINE = Null<br/>epoch millis as Int64"] -->|raw_events_mv| RAW
-    RAW[("raw_events<br/>MergeTree<br/>960,851 live / 905,558 frozen<br/>4.10 MiB, PARTITION BY day")]
+    RAW[("raw_events<br/>MergeTree<br/>2,121,230 live / 905,558 frozen<br/>17.76 MiB, PARTITION BY day")]
 
     RAW --> STATE{{"event_state (VIEW)<br/>3-bucket state machine<br/>millisecond resolution"}}
     STATE -->|01_derive_intervals| FI
     CONTENT -.->|LEFT JOIN for video_type| FI
 
-    FI[("foreground_intervals<br/>MergeTree<br/>631,103 rows, 2.95 MiB")]
+    FI[("foreground_intervals<br/>MergeTree<br/>725,157 live / 598,752 frozen<br/>4.04 MiB")]
     FI -->|02_merge_runs| SMR
     STATE -->|03_derive_incremental<br/>retract then re-assert| SMR
 
-    SMR[("session_minute_runs<br/>CollapsingMergeTree(sign)<br/>19,149 asserted / 22,145 physical")]
-    SMR -->|concurrency_deltas_mv| CD[("concurrency_deltas<br/>SummingMergeTree(delta)<br/>1,580 minutes, 60 KiB")]
-    SMR -->|04_merge_user_runs| UMR[("user_minute_runs<br/>CollapsingMergeTree(sign)<br/>18,145 asserted")]
-    UMR -->|user_concurrency_deltas_mv| UCD[("user_concurrency_deltas<br/>SummingMergeTree(delta)<br/>1,534 minutes, 60 KiB")]
+    SMR[("session_minute_runs<br/>CollapsingMergeTree(sign)<br/>37,056 asserted / 82,352 physical<br/>17,585 asserted on frozen slice")]
+    SMR -->|concurrency_deltas_mv| CD[("concurrency_deltas<br/>SummingMergeTree(delta)<br/>1,615 minutes, 69.65 KiB")]
+    SMR -->|04_merge_user_runs| UMR[("user_minute_runs<br/>CollapsingMergeTree(sign)<br/>36,053 asserted / 81,349 physical<br/>16,582 asserted on frozen slice")]
+    UMR -->|user_concurrency_deltas_mv| UCD[("user_concurrency_deltas<br/>SummingMergeTree(delta)<br/>1,569 minutes, 65.51 KiB")]
 
     CD --> SERVE["sql/queries/serving/<br/>cumulative sum, seeded<br/>peak and both averages"]
     UCD --> SERVE
@@ -147,14 +205,16 @@ flowchart TD
     style SERVE fill:#1e3a5f,color:#fff
 ```
 
-The shape to notice: **the pipeline narrows by three orders of magnitude.** Nearly a million
-events become a 60 KiB serving table, because cost tracks interval boundaries rather than watch
-time. A three-hour session costs the same two delta rows as a two-minute one.
+The shape to notice: **the pipeline narrows by three orders of magnitude.** Two million events become
+a 70 KiB serving table, because cost tracks interval boundaries rather than watch time. A three-hour
+session costs the same two delta rows as a two-minute one, which is why the serving table grew by
+only 9 KiB while `raw_events` more than doubled.
 
 ## Object reference
 
-Fifteen objects in `phoenix`, in pipeline order. Sizes are compressed unless stated; parts are
-active parts at the 2026-08-01 read.
+**Twelve objects in `phoenix`**, in pipeline order, and that is now exactly the set `sql/schema/`
+defines. Sizes are compressed unless stated; parts are active parts at the 2026-08-01 read, taken
+after the cleanup.
 
 ### `raw_events_landing`
 
@@ -228,9 +288,12 @@ which is what makes the unseen day a load rather than a migration.
 | `session_start_epoch` | `DateTime64(3)` | | session start, available on every event |
 | `ingested_at` | `DateTime` | `now()` | **not in the committed DDL**, see below |
 
-**Costs.** 960,851 live rows in **4.10 MiB compressed** against 159.08 MiB uncompressed, 10 active
-parts. 232 MB of CSV to 4.10 MiB is roughly 56x. `[V:inventory_phoenix]` The frozen slice is
-905,558 of those rows.
+**Costs.** 2,121,230 live rows in **17.76 MiB compressed** against 305.25 MiB uncompressed, 9 active
+parts, roughly 17x. `[V:inventory_phoenix]` The frozen slice is **905,558** of those rows and does
+not move; the live count does, and had more than doubled since the earlier reading in this file
+because ingest ran for much of the session. Compression is worse than the 56x recorded earlier for
+the same reason it usually is: the live rows are a replay of a narrower slice of session ids, so
+there is less to gain from `video_session_id` ordering than the original corpus offered.
 
 **Read by.** `event_state`, the derivation pipeline, and the validation oracle. **Not by any
 dashboard query** `[V:filter_shapes]`. No serving query touches this table.
@@ -298,8 +361,13 @@ metadata row is absent would be a correctness bug, not a data-quality improvemen
 bypasses it, so in an incrementally-built database (`phoenix_parity_incr`) this table is empty by
 design.
 
-**Costs.** 631,103 rows, **2.95 MiB compressed** against 97.03 MiB uncompressed, 2 parts. On the
-frozen slice, 599,137 rows `[V:frozen_slice_stability]`.
+**Costs.** 725,157 rows, **4.04 MiB compressed** against 106.70 MiB uncompressed, 2 parts. On the
+frozen slice, **598,752** rows `[V:rebuild_idempotence]`.
+
+That frozen figure was 599,137 before decision D8 bounded intervals at the session's last
+`VideoSessionEnd`. The difference is exactly **385**, which is the number of intervals measured as
+running past their session's end, and the arithmetic is the cheapest available confirmation that the
+fix removed what it claimed to and nothing else.
 
 **The boundary rule, validated, do not change:**
 
@@ -309,8 +377,9 @@ frozen slice, 599,137 rows `[V:frozen_slice_stability]`.
 - tolerance is 90s, chosen from the observed gap distribution (p90 40s, p99 76s), not from the
   nominal 60s heartbeat: 60s would falsely split about 1 percent of normal traffic
 
-**Watch out, and this looks worse than it is.** 253,590 of 599,137 frozen intervals (42.3 percent)
-are zero-length, `interval_end = interval_start` `[V:frozen_slice_stability]`. That is storage
+**Watch out, and this looks worse than it is.** Roughly 42 percent of frozen intervals are
+zero-length, `interval_end = interval_start`: 253,590 of 599,137 at the last full measurement, taken
+before the D8 rebuild moved the denominator to 598,752 `[V:frozen_slice_stability]`. That is storage
 precision, not a logic error: this table stores second-resolution `DateTime` while `event_state`
 runs at milliseconds, so a sub-second segment truncates to a point. It changes no output, because
 `timeSlots(t, 0, 60)` returns exactly one slot, and a viewer seen at 10:00:30 was indeed watching
@@ -344,8 +413,13 @@ Absorption of open sessions is verified against one-pass batch truth `[V:open_se
 before-and-after of a live update is attributed to exactly the sessions that received events
 `[V:open_session_update]`.
 
-**Costs.** 22,145 physical rows, 19,149 asserted, 1001.81 KiB, 2 parts. On the frozen slice,
-17,604 asserted `[V:frozen_slice_stability]`.
+**Costs.** 82,352 physical rows, **37,056 asserted**, 3.51 MiB compressed against 9.50 MiB
+uncompressed, 5 parts. On the frozen slice, **17,585 asserted** `[V:rebuild_idempotence]`, down from
+17,604 before decision D8.
+
+The gap between 82,352 physical and 37,056 asserted is the point of the engine, not a problem: the
+difference is retraction rows awaiting a merge, which is exactly what makes a late-arriving
+correction additive rather than a mutation.
 
 **Watch out. Never use `count()` here.** It reads physical rows including retractions. The correct
 measure is `sum(sign)` `[V:ingest_probe]`.
@@ -355,7 +429,8 @@ measure is `sum(sign)` `[V:ingest_probe]`.
 Same idea, keyed by user instead of session, so a user watching on two devices is one row rather
 than two. **`SharedCollapsingMergeTree(sign)`, `ORDER BY (user_id, run_start, run_end)`.** Columns
 are `user_id`, `platform`, `country`, `video_type`, `content_id`, `app_version`, `run_start`,
-`run_end`, `sign`. Written by `04_merge_user_runs.sql`. 18,145 rows, 476.14 KiB, 1 part.
+`run_end`, `sign`. Written by `04_merge_user_runs.sql`. 81,349 physical rows, **36,053 asserted**
+live and **16,582** on the frozen slice, 1.87 MiB compressed against 5.49 MiB uncompressed, 5 parts.
 `sum(sign)`, never `count()`.
 
 ### `concurrency_deltas_mv` and `user_concurrency_deltas_mv`
@@ -398,24 +473,31 @@ Dimensions lead and `minute` sits last, deliberately. A cumulative sum must be s
 delta before the requested window, so a time predicate **cannot** prune it: starting the sum inside
 the window loses every session that opened earlier and is still watching. What can prune is a
 dimension filter, so dimensions occupy the prunable prefix. Measured: a `platform` filter cuts to
-2 of 4 granules and 16,384 rows where unfiltered reads 26,904 `[V:filter_shapes]`.
+2 of 4 granules and 16,384 rows where unfiltered reads 30,662 `[V:filter_shapes]`.
 
 The honest cost of that choice is in [`problem/DESIGN.md`](problem/DESIGN.md) section 7: only
 `platform` prunes, because it leads. `content_id` is fourth, and a content-only filter reads the
 whole table. At 60 KiB that is a rounding error today; at 100x it is the first thing to revisit,
 most likely with a projection ordered content-first.
 
-**Costs.** `concurrency_deltas` 26,904 rows covering 1,580 distinct minutes in **60.30 KiB**;
-`user_concurrency_deltas` 25,461 rows over 1,534 minutes in 60.09 KiB. Both currently balance to
-`sum(delta) = 0`, spanning `2026-07-14 15:43` to `2026-08-01 13:21`.
+**Costs.** `concurrency_deltas` 30,662 rows covering **1,615 distinct minutes** live and 1,531 on
+the frozen slice, in **69.65 KiB compressed** against 839.89 KiB uncompressed, 1 part.
+`user_concurrency_deltas` 29,218 rows over 1,569 minutes in 65.51 KiB against 800.45 KiB, 1 part.
+Both balance to `sum(delta) = 0`, verified after the D8 rebuild.
+
+**Row count here is the read budget**, and that makes it the number to watch rather than the one to
+report. No time predicate prunes granules on this table `[V:seeding_position]`, so the curve query
+reads all 30,662 rows regardless of the requested window, against a committed ceiling of 80,712.
+See the countdown in [`STATUS.md`](STATUS.md): this is a ceiling being approached, not a property
+being held.
 
 **Watch out.** `count()` is meaningless here too: `SummingMergeTree` collapses rows on merge, so it
 moves with merge timing rather than with data. Measured drifting by 7,740 rows within minutes on
 this service. Use `uniqExact(minute)` and `sum(delta)`.
 
 **The user table is not a copy.** A user with two concurrent sessions counts as 2 in
-`concurrency_deltas` and 1 in `user_concurrency_deltas`. On the frozen slice, peak sessions 2,829
-and peak users 2,749, both at 2026-07-26 10:56 `[V:frozen_slice_stability]`.
+`concurrency_deltas` and 1 in `user_concurrency_deltas`. On the frozen slice, peak sessions 2,828
+and peak users 2,748, both at 2026-07-26 10:56 `[V:frozen_slice_stability]`.
 
 ### `content`
 
@@ -432,26 +514,40 @@ metadata file is idempotent.
 | `category` | `LowCardinality(String)` | |
 | `ingested_at` | `DateTime` | `now()` |
 
-**Costs.** 33,464 rows, 219.95 KiB, 1 part.
+**Costs.** 33,464 rows, 219.95 KiB compressed against 884.60 KiB uncompressed, 1 part. Unchanged by
+the cleanup and by D8: `content` is loaded from CSV and never derived.
 
 **Watch out.** A `DICTIONARY` with `dictGet` was tried first and abandoned: on Cloud, `dictHas`
 returned 0 for keys an `INNER JOIN` matched, because dictionaries load per replica. The join is the
 working version, and the header comment in `sql/schema/02_content.sql` records why.
 
-### Validation-only objects
+### Validation-only objects: none resident
 
-These are not part of the serving path. They exist so that claims can be checked.
+**As of the 2026-08-01 cleanup there are no validation-only objects in `phoenix`.** The three that
+used to live here are created on demand by the script that needs them and were dropped, because
+test scaffolding resident in a production database is the same class of problem as DDL applied out
+of band: it makes the live database disagree with `sql/schema/`.
+
+They are still fully reproducible, and what they are for is worth knowing:
 
 **`concurrency_deltas_naive`** (`SharedSummingMergeTree(delta)`, same key and columns as
-`concurrency_deltas`, 15,725 rows, 40.25 KiB). The **wrong** answer, built deliberately: concurrency
-from raw session span, counting a backgrounded app as watching. It is the baseline that shows what
-foreground-only correction is worth `[V:naive_baseline]` `[V:naive_vs_foreground]`. Never read it
-from a dashboard query.
+`concurrency_deltas`; was 15,725 rows, 40.25 KiB). The **wrong** answer, built deliberately:
+concurrency from raw session span, counting a backgrounded app as watching. It is the baseline that
+shows what the foreground-only correction is worth `[V:naive_baseline]` `[V:naive_vs_foreground]`.
+Never read it from a dashboard query. Recreated by `scripts/naive_baseline.sh`, which does
+`CREATE TABLE IF NOT EXISTS ... AS concurrency_deltas` then `TRUNCATE`, so a re-run is idempotent
+whether or not the table is present.
 
-**`open_test_sessions`** (`SharedMergeTree ORDER BY video_session_id`, 30 rows: `video_session_id`,
-`cutoff UInt32`) and **`open_test_bystanders`** (200 rows, `video_session_id`). The fixture for the
-open-session test: sessions still running at a cutoff, plus bystanders that must not move when
-those sessions are revised `[V:open_sessions]`.
+**`open_test_sessions`** (`SharedMergeTree ORDER BY video_session_id`; was 30 rows,
+`video_session_id` and `cutoff UInt32`) and **`open_test_bystanders`** (was 200 rows,
+`video_session_id`). The fixture for the open-session test: sessions still running at a cutoff, plus
+bystanders that must not move when those sessions are revised `[V:open_sessions]`. Both are
+`CREATE OR REPLACE TABLE` in `scripts/test_open_sessions.sh`, so the script rebuilds them
+unconditionally and never reads a stale fixture.
+
+The findings they produced are unaffected by their removal, because those live in `evidence/` and
+are cited from `LEDGER.tsv`. A conclusion that only exists as rows in a scratch table is a
+conclusion you can lose by housekeeping.
 
 ## The serving surface
 
@@ -469,15 +565,27 @@ Three properties worth knowing before you read the SQL:
 
 1. **The cumulative sum is seeded by every delta before the window.** A session that opened at
    09:00 and is still watching at 10:30 must count in a 10:00 to 11:00 window and contributes no
-   delta inside it. A 1-hour window and a whole-corpus window read the same 26,904 rows, and the
-   read budget fails loudly if the analyzer ever starts pushing the time predicate down.
+   delta inside it.
+
+   **Measured properly, and the comfortable version of this claim is false**
+   `[V:seeding_position]`. This file previously said a 1-hour window and a whole-corpus window read
+   the same rows, which is true but proved nothing: both windows sat at the same upper bound, so
+   both legitimately had to read the same prefix. Re-run with a 1-hour window at the corpus
+   **start**, `read_rows` is **identical at 30,662 for all three** of start-hour, end-hour and whole
+   corpus. It scales with neither window width nor window position. Only `read_bytes` tracks the
+   position of `to_ts`, at 155,416 against 245,296, and that is bytes decompressed rather than rows
+   pruned.
+
+   The honest statement is therefore that **read volume scales with the size of the corpus**, and
+   only a dimension filter reduces it. That is a real scaling limit rather than a pass, and it is
+   what makes the 100x question a day-boundary-snapshot question.
 2. **The curve is dense.** Every minute in the range appears whether or not anybody was watching,
    seeded explicitly rather than by `WITH FILL`. This is a correctness requirement: the average
    over sparse rows answers a different question.
 3. **Peak is not a rollup.** It is computed after filtering, from the per-minute series for the
    exact tuple requested. An android slice and an android-plus-india slice peak at different
    minutes in the same range. Measured: max per-platform peak 1,743 and sum of per-platform peaks
-   2,918, against an overall 2,829, so the overall peak is neither the max nor the sum
+   2,918, against an overall 2,828, so the overall peak is neither the max nor the sum
    `[V:peak_not_a_rollup]`.
 
 `sql/queries/validation/` holds the slow, obviously-correct brute-force versions the serving layer
@@ -513,7 +621,7 @@ the ingest owner.
 |---|---|---|
 | `schema-pk-cardinality-order` | **deviation, measured harmless** | see below |
 | `schema-pk-prioritize-filters` | compliant | `platform` leads and is the only single-dimension filter that prunes |
-| `schema-pk-filter-on-orderby` | compliant | platform-containing shapes read 16,384 rows; all others 26,904 |
+| `schema-pk-filter-on-orderby` | compliant | platform-containing shapes read 16,384 rows; all others 30,662 |
 | `schema-types-lowcardinality` | compliant | every string dimension is `LowCardinality`; highest cardinality is 65 |
 | `schema-types-avoid-nullable` | compliant | **0** `Nullable` columns across the whole database |
 | `schema-types-native-types` | compliant | epoch millis converted to `DateTime64(3)` at ingest, not kept as `Int64` |
@@ -599,6 +707,16 @@ disagree about a number, the live server wins and this file gets corrected.
 To re-read every structural fact above, in order:
 
 ```bash
+# The service should hold exactly two databases, and phoenix exactly the 12 objects
+# sql/schema/ defines. Anything else means scratch has accumulated again, or DDL was
+# applied out of band. Both have happened here.
+./scripts/ch.sh --format PrettyCompact --query "
+  SELECT d.name AS database, count(t.name) AS tables,
+         formatReadableSize(sum(t.total_bytes)) AS size
+  FROM system.databases d LEFT JOIN system.tables t ON t.database = d.name
+  WHERE d.name NOT IN ('system','INFORMATION_SCHEMA','information_schema')
+  GROUP BY d.name ORDER BY d.name"
+
 ./scripts/ch.sh --format PrettyCompact --query "
   SELECT name, engine, total_rows, formatReadableSize(total_bytes)
   FROM system.tables WHERE database = 'phoenix' ORDER BY name"
