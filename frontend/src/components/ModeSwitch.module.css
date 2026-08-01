@@ -1,9 +1,11 @@
+/* Not a boxed tab-bank: no enclosing border, no fill. Each switch is scored by its own
+   bottom rule and the row shares one hairline underneath, the same seam-not-plate language
+   as the rest of the chassis — the active state is which rule lights up, not which cell has
+   a background. */
 .bank {
   display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--bg-panel);
+  gap: 1.7rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .switch {
@@ -11,20 +13,17 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.15rem;
-  padding: 0.55rem 1.1rem;
+  padding: 0.5rem 0 0.6rem;
   background: transparent;
   border: none;
-  border-right: 1px solid var(--line);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.switch:last-child {
-  border-right: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .switch:hover {
-  background: var(--bg-raised);
+  border-bottom-color: var(--line-bright);
 }
 
 .label {
@@ -43,8 +42,7 @@
 }
 
 .switch.active {
-  background: linear-gradient(180deg, rgba(255, 92, 57, 0.14), rgba(255, 92, 57, 0.04));
-  box-shadow: inset 0 -2px 0 var(--signal);
+  border-bottom-color: var(--signal);
 }
 
 .switch.active .label {

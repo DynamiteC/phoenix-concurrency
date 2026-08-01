@@ -33,9 +33,47 @@
 
 .stats {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+/* Hero row and secondary row are each ONE instrument strip, not a grid of separate cards and not
+   a panel floating in its own tinted box either: no fill, no enclosing border, no radius — just
+   the two hairline rules a strip of gauges would be scored by, with the same dividers between
+   segments. The chassis surface (page background + grid texture) runs straight through. A row of
+   boxed KPI cards is the single most generic "AI dashboard" tell there is; a whole screen built
+   from bordered panels is the same tell at a larger scale. */
+.statsHero,
+.statsSecondary {
+  display: grid;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.statsHero {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.statsSecondary {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.statsHero > *,
+.statsSecondary > * {
+  border-left: 1px solid var(--line);
+}
+
+.statsHero > *:first-child,
+.statsSecondary > *:first-child {
+  border-left: none;
+}
+
+/* Diagnostics: engineering readouts, not audience metrics — kept small, quiet, and out of the
+   way at the end of the group instead of matching the hero cards' visual weight. */
+.statsMeta {
+  display: flex;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  align-items: stretch;
 }
 
 .footnote {
