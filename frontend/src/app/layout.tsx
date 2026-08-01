@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: 'PHOENIX // Foreground Concurrency Console',
   description:
     'Live foreground-only streaming concurrency, session-aware and session-independent, served from ClickHouse.',
+  icons: {
+    icon: '/click-a-thon.png',
+  },
 }
 
 export default function RootLayout({children}: { children: React.ReactNode }) {

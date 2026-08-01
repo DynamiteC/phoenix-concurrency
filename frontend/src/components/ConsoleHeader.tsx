@@ -11,7 +11,7 @@ interface Props {
 export default function ConsoleHeader({status, error}: Props) {
   const nf = new Intl.NumberFormat('en-IN')
   return (
-    <header className={`${styles.header} corner-ticks`}>
+    <header className={styles.header}>
       <div className={styles.brand}>
         <h1 className={styles.title}>
           PH<span className={styles.o}>0</span>ENIX

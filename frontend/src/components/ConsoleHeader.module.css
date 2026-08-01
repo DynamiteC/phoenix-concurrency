@@ -1,3 +1,6 @@
+/* Not a filled bar sitting on top of the page — the chassis surface (body background + grid
+   texture) runs continuously behind the header, sidebar, and main column alike. Only a hairline
+   seam marks the boundary, the way a rack panel is scored rather than bolted onto its neighbour. */
 .header {
   display: flex;
   align-items: center;
@@ -5,9 +8,7 @@
   flex-wrap: wrap;
   gap: 1.2rem;
   padding: 1.1rem 1.6rem;
-  background: var(--bg-panel);
   border-bottom: 1px solid var(--line);
-  border-radius: 0;
 }
 
 .brand {
