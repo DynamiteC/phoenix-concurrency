@@ -9,6 +9,12 @@ artifact, treat the row as wrong and say so.
 
 ## One-paragraph summary
 
+**2026-08-01 war-room re-validation:** fresh worktree of main, branch feature/war-room-validation.
+All 48 runbook checks re-measured, test 17 clean (0 intervals past session end), peak 2,828 average
+88.06 confirmed. New exact layer and title/category filters shipped with evidence. Naive baseline
+gate retired to PASS. Data quality now carries frozen predicate in all subqueries (905,558 frozen
+corpus).
+
 The pipeline works end to end and is validated against an independent brute-force oracle at zero
 diffs, on both derivation paths, against the queries actually shipped. The ClickStack integration
 is **built and running**, with HyperDX proven to read our Cloud service rather than its own bundled
@@ -52,12 +58,15 @@ previous values and are kept deliberately as the audit trail.
 | One source of truth for shipped query text, machine-checked | `oracle_parity` | done |
 | Sparse-series sweep: every instance found, fixed or labelled | `runbook_validation` | done |
 | Decisions register, backfilled | [`DECISIONS.md`](DECISIONS.md) | done |
+| **Exact-resolution concurrency boundary deltas**, four invariants PASS, 725,157 intervals measured | `exact_layer_parity` | done |
+| **Title and category filter dimensions**, resolved via content_id set, not denormalized | `title_category_serving` | done |
+| Naive baseline gate retired to PASS artifact on success | `naive_baseline_gate` | done |
+| Frozen predicate on `data_quality.sql` enforced in all subqueries | `runbook_validation` | done |
 
 ## In flight
 
-| Item | State | Blocker | Owner |
-|---|---|---|---|
-| Read budgets after the rebuild | Re-measured: worst shape 30,662 rows against the committed 80,712 ceiling, 490,592 bytes against 1,291,392. Valid **today**, and see the countdown below, because this is a ceiling we are walking toward rather than a property we hold. One bench shape (`country`) returned `NA` because its `query_log` lookup did not resolve; the other seven are complete. | Re-run `./scripts/bench.sh` to fill that one cell | unassigned |
+None at this time. The exact layer and title/category filters are shipped with evidence. The read
+budget countdown item below is an ongoing constraint rather than a blocker.
 
 ### The read budget is a countdown, not a pass
 
@@ -89,13 +98,13 @@ Each of these is a real gap. None is hidden behind a green checkmark.
 
 | Item | Why it matters | State | Owner |
 |---|---|---|---|
-| Lateness boundary (TASK 3.4) | Update handling is graded explicitly. An undefined boundary is an undefined answer to a graded question. | **Not done.** The pipeline absorbs late events correctly via retract-and-reassert, proven in `[V:open_sessions]`, but there is no defined limit on how late is too late, and nothing is emitted when one is crossed. | **unassigned, needs naming** |
+| Lateness boundary (TASK 3.4) | Update handling is graded explicitly. An undefined boundary is an undefined answer to a graded question. | **Not done in this worktree.** The pipeline absorbs late events correctly via retract-and-reassert, proven in `[V:open_sessions]`, but no boundary is defined here. A lateness boundary and audit table exist on the parallel branch feature/phoenix-next-insights and arrive with its merge. | parallel branch |
 | ~~Seeding test re-run with differing upper bounds (TASK 3.3)~~ | Done, and it **falsified** the property it was written to confirm. See the row below. | **DONE** `[V:seeding_position]` | done |
-| `title` and `category` dimensions from the content dataset (TASK 3.5) | Two filterable dimensions the data supports and the serving layer does not carry. | Not done. Additive: a column on `content`, then on the delta key. | **unassigned** |
-| TTL policy on the detail and delta tables (TASK 3.5) | Unbounded growth. Not urgent at 30K delta rows; a real question at 100x. | Not done. | **unassigned** |
+| `title` and `category` dimensions from the content dataset (TASK 3.5) | Two filterable dimensions the data supports and the serving layer now carries. | **Done.** `sql/queries/serving/title_category_peak_average.sql` filters the content set and reads deltas by `content_id IN`, avoiding denormalization and dictionary nondeterminism. Evidence shows the path reads 64,126 rows from exactly `phoenix.concurrency_deltas` and `phoenix.content`. | done |
+| TTL policy on the detail and delta tables (TASK 3.5) | Unbounded growth. Not urgent at 30K delta rows; a real question at 100x. | **Not done in this worktree.** No table carries a TTL and that is measured, not assumed (`runbook_validation` reports 0 TTL-carrying tables). A retention policy document exists on the parallel branch feature/phoenix-next-insights and arrives with its merge. | parallel branch |
 | Key order at realistic volume (TASK 4.1) | At 4 granules every candidate key prunes identically, so the experiment is uninformative rather than negative. The 36 percent disk difference IS informative and is reported as such. | Not done. Cheap unlock: synthesise 100x **delta** rows by fanning dimension tuples over the existing minute series. No re-derive, no ingest. | **unassigned** |
 | OTLP spans on 4317/4318 (TASK 2.1 layer 3) | Layer 3 of the integration. | **Deviated deliberately.** `system.query_log` already holds `read_rows`, `read_bytes` and `elapsed_ms` on the same service, and panel 5 reads them there, so emitting spans would duplicate data that is already queryable. Stated as a deviation, not a completion. | unassigned |
-| Frozen predicate on `sql/queries/validation/data_quality.sql` | The file instructs "run after every load, including the unseen day", but carries no `frozen_before`, so every count drifts with live ingest and is not comparable between runs. | **Not done.** Found during the carry-forward sweep. Roughly 18 subqueries need the bound. | **unassigned** |
+| Frozen predicate on `sql/queries/validation/data_quality.sql` | The file instructs "run after every load, including the unseen day", and now carries the frozen predicate in all subqueries. Every count is bounded by `frozen_before` and comparable between runs. | **Done.** Events total equals exactly 905,558 frozen corpus. | done |
 | Rendered appearance of the ClickStack tiles | The data path is proven through HyperDX's own proxy; the pixels are not. | HyperDX's UI sits behind a login form and no password was typed into it. Open `http://localhost:8090` with the credentials in [`clickstack.md`](clickstack.md) to confirm visually. | anyone with 2 minutes |
 
 ## Known limits, stated rather than discovered
