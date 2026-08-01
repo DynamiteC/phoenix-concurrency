@@ -32,3 +32,4 @@ exact_layer_parity	exact boundary layer: invariants asserted, minute-layer compa
 title_category_serving	title/category filter answers from concurrency_deltas + content only (category=bhdbj)	title_category_probe.sh	evidence/title_category_serving__20260801T180839Z__8f6fa49-dirty.tsv	PASS		8f6fa49-dirty	2026-08-01 18:08:39
 naive_baseline_gate	range/balance gate before the naive-vs-corrected comparison	naive_baseline.sh	evidence/naive_baseline_gate__20260801T181031Z__8f6fa49-dirty.tsv	PASS		8f6fa49-dirty	2026-08-01 18:10:31
 naive_baseline	naive session-span vs foreground-only, same minute rule, densified, clipped to the overlapping range	naive_baseline.sh	evidence/naive_baseline__20260801T181032Z__8f6fa49-dirty.tsv	PASS		8f6fa49-dirty	2026-08-01 18:10:32
+reach_budget	reach.sql read budget recalibrated to 3x measured after a real TOO_MANY_ROWS breach	reach_recalibration	evidence/reach_budget__20260801T182737Z__e16e63d-dirty.tsv	PASS		e16e63d-dirty	2026-08-01 18:27:37

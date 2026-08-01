@@ -71,6 +71,14 @@ SELECT 'users'    AS level, uniqExact(user_id)          AS reach FROM asserted_u
 ORDER BY level
 -- READ BUDGET. Measured this session, not estimated: see the ledger row for reach_budget.
 --
+-- RECALIBRATED 2026-08-01 after a real TOO_MANY_ROWS breach at 330K rows. This query reads
+-- PHYSICAL sign rows, and the retract/assert protocol writes -1/+1 pairs on every
+-- incremental derive, so the physical row count grows with derive activity until background
+-- merges collapse the pairs. Measured today: phoenix 366,638 rows / 14,219,708 bytes,
+-- phoenix_next 224,096 / 9,913,988. Ceiling is 3x the worse of the two. If it breaches
+-- again, re-measure first; OPTIMIZE TABLE ... FINAL collapses settled pairs and brings the
+-- read back down, but the honest ceiling has to fund the un-merged worst case.
+--
 -- force_primary_key is deliberately ABSENT here, and the absence is the honest answer rather
 -- than a gap. Both runs tables are ORDER BY (id, run_start, run_end), so a window predicate
 -- on run_start with no id prefix cannot engage the primary key at all: this query scans the
@@ -80,5 +88,5 @@ ORDER BY level
 -- That is also why reach is not on the concurrency curve's budget. The curve reads a
 -- SummingMergeTree keyed to prune on dimensions; this reads two CollapsingMergeTrees keyed
 -- for session lookup. Averaging the two into one ceiling would hide both.
-SETTINGS max_rows_to_read = 150000,
-         max_bytes_to_read = 6000000;
+SETTINGS max_rows_to_read = 1099914,
+         max_bytes_to_read = 42659124;
