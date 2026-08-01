@@ -108,7 +108,19 @@ else
   # one, because adopting somebody else's undiscussed production table into sql/schema/ is their
   # decision and not this script's. It is not benign: see STATUS.md for why a REBUILD=1 derive
   # doubles it with closure still reading 0.
-  DRIFT_QUIET=1 DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv,concurrency_boundary_deltas' \
+  # Two allowlisted objects in phoenix, and they are NOT the same kind of thing:
+  #
+  #   concurrency_deltas_naive is created by scripts/naive_baseline.sh, a committed script, and
+  #   holds the deliberately wrong session-span model for comparison. Reproducible, understood,
+  #   and merely undeclared. The mild version: a repo script that materialises a table
+  #   sql/schema/ does not know about.
+  #
+  #   concurrency_boundary_deltas is not in this repo at all. It appeared at 18:02 UTC on
+  #   2026-08-01 by hand. It is in neither guard list, so a REBUILD=1 derive fires its MV a
+  #   second time and doubles it while sum(delta) still reads 0. See docs/STATUS.md; it needs
+  #   its author, not an allowlist entry, and this line is a placeholder until it gets one.
+  DRIFT_QUIET=1 \
+  DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv,concurrency_boundary_deltas,concurrency_deltas_naive' \
     ./scripts/schema_drift.sh phoenix      2>&1 | grep -v 'Unknown settings' || fail=1
   DRIFT_QUIET=1 INSIGHTS=1 \
     ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1

@@ -10,8 +10,8 @@ All figures are `phoenix_next`, the generation-2 replica. `phoenix` is not writt
 | Insight | Ground truth | Rows compared | Columns | Differing | Missing | Unexpected | Status |
 |---|---|---:|---:|---:|---:|---:|---|
 | `session_insight_facts` | `clickhouse local` over the raw CSV, own state machine | 10,866 | 31 | 0 | 0 | 0 | PASS |
+| `audience_minute_snapshot` | authoritative `concurrency_deltas` and `user_concurrency_deltas` curves | 3,663 minutes | 3 | 0 | 0 | 0 | PASS |
 | `session_state_transitions` | | | | | | | not started |
-| `audience_minute_snapshot` | | | | | | | not started |
 | `playback_health_minute` | | | | | | | not started |
 | `content_entry_cohorts` | | | | | | | not started |
 | `concurrency_spike_events` | | | | | | | not started |
@@ -38,11 +38,40 @@ The artifact also asserts `rows_actually_compared` against `keys_in_common` and 
 non-zero, because zero diffs over zero rows is the shape of a green check that checked nothing, and
 a join whose key column fails to line up produces exactly that.
 
+### The audience snapshot, and the reference that was wrong first
+
+`[V:insight_parity_audience_snapshot]`. Eight metrics per minute from one read of one table. The
+same panel built on the delta tables needs a cumulative sum for sessions, another for users, and
+four more passes over runs and events.
+
+This one uses the **weaker kind of reference** and the artifact records that: a server-side query
+against `concurrency_deltas` and `user_concurrency_deltas`, which share an engine and a derivation
+with the thing being checked, rather than a second implementation in a second engine. It is the
+right form here because the plan's Phase 3 gate names those tables as the authority, and they are
+themselves already proven against the brute-force oracle `[V:oracle_parity]`. Chaining is
+legitimate; calling it as strong as the two-engine form would not be.
+
+**The gate's first run reported 171 differing rows, and the snapshot was right.** The reference
+merged the two sparse delta series and densified the result, which put a row at every
+session-delta minute carrying `users = 0`; `WITH FILL` then had nothing to fix, because
+`INTERPOLATE` only fills minutes that are absent and cannot correct a present row that says zero.
+That is the same sparse-series mistake behind eleven entries in `corrections.md`, committed inside
+the query whose job was to catch it. Each curve is now densified separately and joined afterwards.
+Worth recording rather than quietly fixing: the failure was in the reference, which is the half
+nobody re-checks.
+
+**Partition pruning works here and does not on `session_insight_facts`.** A one-day window selects
+one `toYYYYMMDD(minute)` partition; the 12/12 granule figure is all granules *of that partition*,
+not of the table. `minute` can lead this table's ORDER BY precisely because its rows are absolute
+values, while `concurrency_deltas` must put dimensions first since a cumulative sum has to start at
+the first minute of the series. Opposite key orders, same reasoning applied to different questions.
+
 ## Gate B: what the queries read
 
 | Query | Reads | Worst shape | Rows read | Bytes read | Cold / warm | `raw_events` in plan |
 |---|---|---|---:|---:|---:|---|
 | `session_facts_app_version_health` | `session_insight_facts` | content | 21,732 | 2,243,290 | 27 / 20 ms | **no** |
+| `audience_snapshot_minute_trend` | `audience_minute_snapshot` | content | 96,216 | 5,015,770 | 38 / 56 ms | **no** |
 
 `[V:insight_bench_session_facts_app_version_health]`, six filter shapes, `use_query_cache = 0`.
 Budget committed on the query as `SETTINGS max_rows_to_read = 65199, max_bytes_to_read = 6729870`,
@@ -71,7 +100,8 @@ Projected, and labelled projected. Stage 5 replaces the 10x column with measurem
 |---|---:|---:|---:|
 | `raw_events` | 2,188,714 | ~21.9M | ~219M |
 | Sessions in `session_insight_facts` | 119,491 | ~1.2M | ~12M |
-| Worst-shape rows read, one day | 21,732 | ~217k | ~2.2M |
+| Worst-shape rows read, one day, session facts | 21,732 | ~217k | ~2.2M |
+| Worst-shape rows read, one day, minute snapshot | 96,216 | ~962k | ~9.6M |
 | Worst-shape bytes read, one day | 2.24 MiB | ~22 MiB | ~224 MiB |
 | Committed row ceiling | 65,199 | **breached** | **breached** |
 

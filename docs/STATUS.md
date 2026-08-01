@@ -55,6 +55,7 @@ previous values and are kept deliberately as the audit trail.
 | **`phoenix_next`, the generation-2 replica**, re-derived independently, 21,600 minutes at 0 diffs | `replicate_phoenix_to_phoenix_next`, `replica_parity_phoenix_next` | done |
 | **Schema drift detector**, and the index it found live that no file in the repo created | `schema_drift_phoenix`, `schema_drift_phoenix_next` | done |
 | Trustworthy `arrival_timestamp`, materialised by the MV, sentinel on copied rows | `replicate_phoenix_to_phoenix_next` | done |
+| **`audience_minute_snapshot`**, 3,663 minutes matching the authoritative session AND user curves at 0 diffs | `insight_parity_audience_snapshot` | done |
 | **`session_insight_facts`**, the keystone, 10,866 sessions and 31 columns at 0 diffs vs an independent ground truth | `insight_parity_session_facts` | done |
 | Insight read cost: 6 shapes, `raw_events` absent from every plan, budget set from measurement | `insight_bench_session_facts_app_version_health` | done |
 | Insight refresh idempotence: 238,983 stored versions collapse to 119,491 rows under FINAL | `refresh_insights_phoenix_next` | done |

@@ -28,11 +28,38 @@ fail_any=0
 validate() {
   local name="$1"
   local gt="sql/insights/validation/${name}_ground_truth.sql"
+  local ref="sql/insights/validation/${name}_reference.sql"
   local op="sql/insights/validation/${name}_optimized.sql"
-  [ -f "$gt" ] && [ -f "$op" ] || { echo "skip $name: missing one side of the pair" >&2; return 0; }
+  [ -f "$op" ] || { echo "skip $name: no optimized side" >&2; return 0; }
 
-  echo "== $name: ground truth over $CSV in clickhouse local" >&2
-  FORMAT=TSV ./scripts/oracle.sh "$CSV" "$gt" 2>/dev/null | LC_ALL=C sort > "$TMP/gt"
+  # TWO KINDS OF REFERENCE, and which one a given insight gets is a real distinction rather than
+  # a convenience.
+  #
+  #   _ground_truth.sql  runs in `clickhouse local` over the raw CSV, with its own copy of the
+  #                      state machine. Two engines, two implementations. This is the strong
+  #                      form and it is what session_facts gets.
+  #
+  #   _reference.sql     runs on the server against an ALREADY VALIDATED table. Weaker, because
+  #                      it shares an engine and a derivation, and it is the right form when the
+  #                      plan's gate names a specific existing table as the authority. The
+  #                      audience snapshot's gate is literally "concurrent_sessions must equal
+  #                      the authoritative concurrency_deltas curve", and concurrency_deltas is
+  #                      itself already proven against the brute-force oracle at zero diffs
+  #                      [V:oracle_parity]. Chaining is legitimate; pretending it is the same
+  #                      strength as the two-engine form is not, so the artifact records which
+  #                      one ran.
+  local mode
+  if [ -f "$gt" ]; then
+    mode="clickhouse local over $CSV, independent implementation"
+    echo "== $name: ground truth over $CSV in clickhouse local" >&2
+    FORMAT=TSV ./scripts/oracle.sh "$CSV" "$gt" 2>/dev/null | LC_ALL=C sort > "$TMP/gt"
+  elif [ -f "$ref" ]; then
+    mode="server-side reference: $ref (already-validated table)"
+    echo "== $name: reference query on $DB" >&2
+    ./scripts/ch.sh --format TSV --queries-file "$ref" 2>/dev/null | LC_ALL=C sort > "$TMP/gt"
+  else
+    echo "skip $name: no reference of either kind" >&2; return 0
+  fi
 
   echo "== $name: optimized over $DB" >&2
   ./scripts/ch.sh --format TSV --queries-file "$op" 2>/dev/null | LC_ALL=C sort > "$TMP/op"
@@ -70,7 +97,7 @@ validate() {
     printf 'metric\tvalue\n'
     printf 'insight\t%s\n'                     "$name"
     printf 'database\t%s\n'                    "$DB"
-    printf 'ground_truth_engine\tclickhouse local over %s\n' "$CSV"
+    printf 'reference_kind\t%s\n' "$mode"
     printf 'ground_truth_rows\t%s\n'           "$gt_rows"
     printf 'optimized_rows\t%s\t(frozen slice: sessions whose every event precedes frozen_before)\n' "$op_rows"
     printf 'differing_rows\t%s\t(required 0)\n'    "$differing"
@@ -91,10 +118,10 @@ if [ -n "$ONLY" ]; then
   validate "$ONLY"
 else
   found=0
-  for gt in sql/insights/validation/*_ground_truth.sql; do
+  for gt in sql/insights/validation/*_optimized.sql; do
     [ -e "$gt" ] || break
     found=1
-    validate "$(basename "$gt" _ground_truth.sql)"
+    validate "$(basename "$gt" _optimized.sql)"
   done
   [ "$found" = 1 ] || echo "no insight validation pairs yet" >&2
 fi
