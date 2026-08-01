@@ -68,6 +68,18 @@ const VIEWS: Record<string, {file: string; question: string; reads: string; hono
     reads: 'concurrency_spike_events',
     honours: ['content_id', 'time'],
   },
+  switching: {
+    file: 'journey_content.sql',
+    question: 'Which content takes its audience from which, and how much of that is real switching?',
+    reads: 'user_content_transitions',
+    honours: ['content_id', 'video_type', 'time'],
+  },
+  handoff: {
+    file: 'journey_platform.sql',
+    question: 'Which devices hand off to which, and how much is one person versus two screens?',
+    reads: 'user_platform_transitions',
+    honours: ['platform', 'content_id', 'time'],
+  },
   lateness: {
     file: 'lateness_audit.sql',
     question: 'What arrived late, and did it change an answer we had already given?',
