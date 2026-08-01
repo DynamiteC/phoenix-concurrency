@@ -57,11 +57,20 @@ and because the exclusion costs nothing once the state machine reads `event`.
 | Reading | Peak | Minutes with traffic |
 |---|---|---|
 | Naive: session counted start-to-end | 3,742 | 5,254 |
-| Foreground-only oracle | 3,323 | 3,982 |
+| Foreground-only oracle | 2,829 | 3,664 |
 
-**12.6% overcount at peak, and 1,272 minutes (24%) that the naive model reports as having an
+**32.3% overcount at peak, and 1,592 minutes (30%) that the naive model reports as having an
 audience when nobody was actively watching.** Driven mostly by heartbeat silence, not by
 backgrounding: backgrounds here are seconds long, gaps run to 40 hours.
+
+- [2026-08-01 12:36] **Corrected from 3,323 / 12.6% / 1,272.** Those were measured before the
+  neutral-heartbeat fix (`7bc3a51`), when telemetry following a `pause` cancelled it and
+  paused time counted as watching. Re-derived on current data:
+  `evidence/naive_vs_foreground__20260801T123608Z__c228db4-dirty.tsv`. Phantom minutes are
+  now counted by the literal predicate (naive > 0 AND corrected = 0) rather than by
+  subtracting two totals; the two disagree by 2 minutes, which have a corrected audience and
+  no naive one because a foreground interval runs to `last_event + tolerance_s` and can
+  reach into a minute the session's last event did not. See `evidence/INDEX.md`.
 
 Session-aware vs session-independent (per `video_session_id` vs per `user_id`): both are
 emitted by the oracle already (`concurrent_sessions`, `concurrent_users`). Divergence gets
@@ -140,3 +149,47 @@ wrong for every slice but the one it was computed for.
 of the queried range, so it reads the whole history of the filtered slice. At 12 days and
 22,600 rows that is free. At 100x, insert periodic snapshot rows carrying the running total
 at day boundaries so the sum starts from the nearest snapshot.
+
+## AdPause / AdResume ruling (2026-08-01)
+
+- [2026-08-01 12:36] **`AdPause` and `AdResume` stay classified as pause and resume**, the
+  same as `pause`/`speed-pause` and `resume`/`speed-resume`. Because an ad break is not
+  playback of the title: whatever the business does with ad impressions, "how many people are
+  watching this content right now" should not include the people looking at an ad. Keeping
+  the ad family in the same bucket as every other pause also means the state machine has one
+  rule for pausing rather than two, and a future `AdSkip` or similar lands in the neutral
+  bucket by default rather than manufacturing viewing time.
+
+  **Measured impact, so the ruling is a choice and not an accident**
+  (`evidence/adpause_impact__20260801T123609Z__c228db4-dirty.tsv`, oracle run twice,
+  identical except the two literals):
+
+  | Reading | Peak | Minutes with audience |
+  |---|---|---|
+  | Ad family classified (shipped) | 2,829 | 3,664 |
+  | Ad family neutral | 2,829 | 3,664 |
+
+  Peak identical, total minutes identical, **5 minutes differ by at most 1 session**. The
+  ruling is therefore free on this dataset and the decision is made on principle, not on the
+  number. Alternative rejected: treating the ad family as neutral, because it would count ad
+  time as content viewing and the direction of that error is overcounting, which is the exact
+  failure this problem exists to prevent.
+
+  **Exposure on the unseen day:** 45 ad-family events in this sample. A day with real ad
+  breaks during live sport could move this materially, and the measurement is one command:
+  `./scripts/measure_divergence.sh`. Re-run it on the unseen day before quoting either number.
+
+## Schema drift caught 2026-08-01
+
+- [2026-08-01 12:34] **`ingested_at DateTime DEFAULT now()` was added to `phoenix.raw_events`
+  and `phoenix.content` by an out-of-band `ALTER`**, three seconds into a parity run
+  (`system.query_log`, user `default`). The committed DDL had 13 columns and the live service
+  had 14, so every script that copies rows into a scratch database with `SELECT *` failed
+  instantly with `NUMBER_OF_COLUMNS_DOESNT_MATCH`. `sql/schema/01_raw_events.sql` and
+  `02_content.sql` now carry the column, so `init_db.sh` reproduces the live shape.
+
+  **Rule that follows:** the schema files are the source of truth. Changing the live service
+  without changing them breaks every scratch-database proof in the repo, silently for anyone
+  who does not read stderr. `raw_events_mv` selects an explicit column list, so the DEFAULT
+  fires on every MV-inserted row and an ingest script cannot forget to set it: verified by
+  inserting through `raw_events_landing` and reading back `ingested_at`.

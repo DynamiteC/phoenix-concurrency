@@ -17,6 +17,17 @@
 #   ./scripts/test_open_sessions.sh [session_count]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. scripts/lib/evidence.sh
+
+# Assertions, retraction counts and diff counts accumulate here and are flushed to evidence/
+# at the verdict, before the cleanup trap fires. Without this the proof of the open-session
+# path lived only in a terminal scrollback, and open sessions are the DEFAULT state in a
+# live replay: this is the one path that cannot stay unwitnessed.
+METRICS=""
+metric() { METRICS="${METRICS}${1}	${2}
+"; }
+# TSVRaw single value, for arithmetic rather than display
+val() { CH_DATABASE="$1" ./scripts/ch.sh --format TSVRaw --query "$2" 2>/dev/null | head -1; }
 
 N="${1:-30}"
 TEST=phoenix_open_test
@@ -56,6 +67,7 @@ HAVING count() BETWEEN 20 AND 400
 ORDER BY cityHash64(video_session_id)
 LIMIT $N"
 q phoenix --format PrettyCompact --query "SELECT count() AS sessions_selected FROM phoenix.open_test_sessions"
+metric sessions_selected "$(val phoenix "SELECT count() FROM phoenix.open_test_sessions")"
 
 echo "== 3. truth: the same sessions, complete, derived in one pass by the BATCH path"
 # Deliberately the batch scripts (01 + 02), not the incremental one under test: comparing the
@@ -74,6 +86,8 @@ INNER JOIN phoenix.open_test_sessions s ON r.video_session_id = s.video_session_
 WHERE toUnixTimestamp(r.event_timestamp) < s.cutoff"
 q "$TEST" --format PrettyCompact --query "
 SELECT count() AS events_day1, countIf(event_type = 'VideoSessionEnd') AS ends_present FROM raw_events"
+metric events_day1 "$(val "$TEST" "SELECT count() FROM raw_events")"
+metric ends_present_day1 "$(val "$TEST" "SELECT countIf(event_type = 'VideoSessionEnd') FROM raw_events")"
 pipeline "$TEST" '2000-01-01 00:00:00' '2100-01-01 00:00:00'
 
 echo "== 4b. bystanders: 200 unrelated complete sessions that must never be re-derived"
@@ -104,6 +118,8 @@ SELECT
     (SELECT max(toDateTime(event_timestamp)) FROM raw_events) AS latest_event,
     dateDiff('second', latest_event, latest_run_end) AS provisional_tail_s
 FROM session_minute_runs"
+metric day1_asserted_runs "$(val "$TEST" "SELECT sum(sign) FROM session_minute_runs")"
+metric day1_provisional_tail_s "$(val "$TEST" "SELECT dateDiff('second', (SELECT max(toDateTime(event_timestamp)) FROM raw_events), max(run_end)) FROM session_minute_runs")"
 
 echo "== 5b. open sessions must be counted as watching at the cutoff, not dropped"
 q "$TEST" --format PrettyCompact --query "
@@ -112,6 +128,14 @@ SELECT
     countIf(c > 0) AS minutes_with_audience
 FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c
       FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))"
+metric day1_peak_while_open "$(val "$TEST" "SELECT max(c) FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))")"
+metric day1_minutes_with_audience "$(val "$TEST" "SELECT countIf(c > 0) FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))")"
+
+# Baseline before the arrival. Step 4b re-derives over an unbounded window on purpose, so
+# the cumulative retraction count includes bystander rows that pass legitimately wrote. Only
+# the DELTA across step 6 answers "did the tail arrival touch a session it should not have".
+PRE_TEST=$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_sessions)) FROM session_minute_runs")
+PRE_BY=$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_bystanders)) FROM session_minute_runs")
 
 echo "== 6. day 2 arrivals: the previously dropped tails, including the real ends"
 q "$TEST" --query "
@@ -129,6 +153,9 @@ pipeline "$TEST" "$TAIL_FROM" '2100-01-01 00:00:00'
 q "$TEST" --format PrettyCompact --query "
 SELECT sum(sign) AS asserted_runs, count() AS rows_written, countIf(sign = -1) AS retractions
 FROM session_minute_runs"
+metric day2_asserted_runs "$(val "$TEST" "SELECT sum(sign) FROM session_minute_runs")"
+metric day2_rows_written "$(val "$TEST" "SELECT count() FROM session_minute_runs")"
+metric day2_retractions "$(val "$TEST" "SELECT countIf(sign = -1) FROM session_minute_runs")"
 
 echo "== 6b. did the arrival touch anything it should not have?"
 q "$TEST" --format PrettyCompact --query "
@@ -136,6 +163,16 @@ SELECT
     countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_sessions))    AS retracted_under_test,
     countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_bystanders)) AS retracted_bystanders
 FROM session_minute_runs"
+metric retracted_under_test "$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_sessions)) FROM session_minute_runs")"
+metric retracted_bystanders "$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_bystanders)) FROM session_minute_runs")"
+metric bystanders_total "$(val phoenix "SELECT count() FROM phoenix.open_test_bystanders")"
+# The claim under test: the tail arrival retracted runs for sessions under test and for no
+# one else. Cumulative counts above cannot show this; these deltas can.
+POST_TEST=$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_sessions)) FROM session_minute_runs")
+POST_BY=$(val "$TEST" "SELECT countIf(sign = -1 AND video_session_id IN (SELECT video_session_id FROM phoenix.open_test_bystanders)) FROM session_minute_runs")
+metric arrival_retracted_under_test "$(( POST_TEST - PRE_TEST ))"
+metric arrival_retracted_bystanders "$(( POST_BY - PRE_BY ))"
+metric arrival_sessions_rederived "$(val "$TEST" "SELECT uniqExact(video_session_id) FROM raw_events WHERE event_timestamp >= parseDateTimeBestEffort('$TAIL_FROM')")"
 
 echo "== 7. verdict: incremental result vs one-pass truth"
 curve() { CH_DATABASE="$1" ./scripts/ch.sh --format TSV \
@@ -148,5 +185,16 @@ DIFFS=$(diff "$TMP/truth.tsv" "$TMP/test.tsv" | grep -c '^[<>]' || true)
 echo "  truth minutes:       $(wc -l < "$TMP/truth.tsv")"
 echo "  incremental minutes: $(wc -l < "$TMP/test.tsv")"
 echo "  differing rows:      $DIFFS"
+metric truth_minutes "$(wc -l < "$TMP/truth.tsv")"
+metric incremental_minutes "$(wc -l < "$TMP/test.tsv")"
+metric differing_rows "$DIFFS"
+metric verdict "$([ "$DIFFS" = "0" ] && echo PASS || echo FAIL)"
+metric tolerance_s "${TOLERANCE_S:-90}"
+metric pause_inactive "${PAUSE_INACTIVE:-1}"
+
+# Flushed here, before the EXIT trap removes $TMP and before the non-zero exit below.
+printf 'metric\tvalue\n%s' "$METRICS" \
+  | evidence open_sessions "incremental absorption of open sessions vs one-pass batch truth" >/dev/null
+
 [ "$DIFFS" = "0" ] && echo "  PASS: open sessions absorbed incrementally, no rebuild" \
                    || { echo "  FAIL"; diff "$TMP/truth.tsv" "$TMP/test.tsv" | head -20; exit 1; }
