@@ -1,4 +1,4 @@
-# Live demo: 15 concurrent live streams into `phoenix`
+# Live demo: 15 concurrent live streams into `phoenix_next`
 
 What the problem statement asks for as a demo: *"Replay a live-event day: ingest the session
 stream, the concurrency curve builds in near real time as sessions open, heartbeat, and close,
@@ -10,8 +10,8 @@ to start at.
 ## Run it
 
 ```bash
-./scripts/reset_live.sh --yes        # back to the validated corpus, prints proof it survived
-./scripts/live_demo.sh               # producer + deriver + 3 query workers + observer, 1 hour
+./scripts/reset_live.sh --db phoenix_next --yes   # back to the validated corpus, proves it survived
+./scripts/live_demo.sh                            # producer + deriver + query workers + observer
 cd frontend && npm run dev           # curve builds at the existing 5s refresh
 ```
 
@@ -30,14 +30,20 @@ FROZEN_BEFORE=2026-08-03
 
 | Process | Job | Why it is separate |
 |---|---|---|
-| `live_producer.sh` ×1 | One batched INSERT per 30s cycle, ~30k rows | Generation is server-side, so a second producer adds no throughput and only splits one well-sized part into two |
+| `live_producer.sh` ×1 | One batched INSERT per 30s cycle, ~40k rows | Generation is server-side, so a second producer adds no throughput and only splits one well-sized part into two |
 | `derive_tick.sh` ×1 | Incremental derive loop | Deriving *while* ingesting is the update-friendliness claim being graded |
 | `live_queryload.sh` ×3 | Serving queries on the live window, latency recorded | "How does it perform against live data" only means something under concurrent write |
 | observer ×1 | Live rows, concurrency, lag, active parts, derive status | Catches a stalled curve while there is time to react |
 
-The producer's INSERT is ~30,000 rows, inside the 10K–100K band ClickHouse's `insert-batch-size`
-guidance asks for, and uses `async_insert=1, wait_for_async_insert=1` so the server coalesces
-without hiding failures.
+The producer's INSERT is **40,536 rows at p50, measured**, inside the 10K-100K band
+`insert-batch-size` asks for, at roughly 483 ms and 83 MB per statement.
+
+It deliberately does **not** set `async_insert`. An earlier version did, which reads like
+diligence and does nothing: async inserts apply to INSERT with FORMAT or VALUES data, never to
+`INSERT ... SELECT`. Measured over 40 minutes of live ingest, `system.asynchronous_insert_log`
+recorded zero events while every cycle carried the setting. It would be wrong even if it worked,
+since `insert-async-small-batches` scopes async to "when client-side batching isn't practical",
+and here it is practical and already done.
 
 ## The load
 
@@ -103,12 +109,14 @@ inherit the error."*
 
 ## Four failures this design already paid for
 
-**Every row of a cycle sharing one `now64(3)`.** The incremental derive's window is half-open
-(`sql/pipeline/03_derive_incremental.sql:35`, `event_timestamp < to_ts`) and `derive_tick.sh` sets
-`to_ts = max(event_timestamp)`. Rows sitting exactly at the max fall outside every window that
-ends at them. With a whole cycle at one instant that is the entire batch: measured, 2,024 raw rows
-produced **0** intervals and a flat zero curve. The producer now jitters every row across its
-cycle, which is both more realistic and puts a single row at the max instead of all of them.
+**Every row of a cycle sharing one `now64(3)`.** The incremental derive's window *was* half-open
+(`event_timestamp < to_ts`) while `derive_tick.sh` set `to_ts = max(event_timestamp)`, so rows
+sitting exactly at the max fell outside every window that ended at them. With a whole cycle
+stamped at one instant, that was the entire batch: measured, 2,024 raw rows produced **0**
+intervals and a flat zero curve.
+
+Both halves are fixed. The producer jitters every row across its cycle, and the derive window is
+now inclusive and millisecond-precise, so this is history rather than current behaviour.
 
 **Inlining the tuple arrays into all 75 branches.** The statement reached ~90 KB and the shell
 rejected it with `Argument list too long`. The arrays are now named once in the `WITH` clause and

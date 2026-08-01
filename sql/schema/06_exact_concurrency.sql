@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS concurrency_boundary_deltas
     delta       Int32
 )
 ENGINE = SummingMergeTree(delta)
+PARTITION BY toYYYYMMDD(ts)
 ORDER BY (platform, country, video_type, content_id, app_version, ts);
 
 -- Fires on the batch derive's insert into foreground_intervals. Zero-length intervals are

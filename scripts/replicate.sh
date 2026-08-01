@@ -66,7 +66,7 @@ echo "== 1. create $DST from sql/schema/" >&2
 # CUT_BEFORE pins the cut instead of taking the source's live watermark, which is what you want
 # when the destination should be the VALIDATED CORPUS and nothing else. Copying at the live
 # watermark drags the source's live slice along: phoenix_next carried 1,298,060 such rows when
-# phoenix_insights was built from it. Every comparison below derives from $CUT, so bounding it
+# the since-dropped phoenix_insights was built from it. Every comparison below derives from $CUT, so bounding it
 # keeps s_raw/d_raw and s_frz/d_frz self-consistent and the PASS still means something.
 #
 # NOTE the boundary is INCLUSIVE (<=) while the frozen predicate is strict (<), so passing a

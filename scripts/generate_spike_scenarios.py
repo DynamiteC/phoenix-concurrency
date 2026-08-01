@@ -25,7 +25,8 @@ because lateness is measured against that observed arrival and not against a sel
 The fixed dimension values below are deliberately OUT of the corpus vocabulary
 (app_version 'spike-test-1.0.0', player 'synthetic-player-1'). That is test isolation, not drift:
 content_id 990001 and these markers make every synthetic row identifiable for cleanup, and this
-scenario runs in phoenix_insights where it cannot reach the graded corpus.
+scenario runs in phoenix_next, isolated by content_id rather than by database, and phoenix (the
+graded corpus) is never written to.
 """
 import argparse
 import csv
