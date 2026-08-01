@@ -3,28 +3,26 @@
 -- Explodes every active segment into per-minute rows: exactly the approach the problem
 -- statement rules out at scale. That is the point. It is the reference, not the product.
 --
+-- The classification is written out again here rather than reading the event_state view.
+-- A specification that imports the implementation cannot catch the implementation's bugs.
+--
 -- Parameters:
 --   tolerance_s      heartbeat gap that ends an interval when nothing else does
 --   pause_inactive   1 = paused time is not watching, 0 = paused still counts
 --
--- State machine (event-primary, heartbeat gap as the fallback):
---   CLOSE on AppBackgrounded / VideoSessionEnd / VideoError, and on pause when
---     pause_inactive = 1 (pause hides in the `event` column of VideoHeartbeat rows)
---   OPEN  on everything else: VideoSessionStart, VideoPlay, AppForegrounded, resume,
---     and any heartbeat, which is itself proof of life
---   FALLBACK every open segment is capped at tolerance_s, so a dropped AppBackgrounded
---     or a silent client cannot extend an interval indefinitely
+-- Three buckets:
+--   DEACTIVATING  AppBackgrounded, VideoSessionEnd, VideoError, pause family
+--   REACTIVATING  VideoSessionStart, VideoPlay, AppForegrounded, resume family
+--   NEUTRAL       every other heartbeat value: carries the previous state forward, and
+--                 must never flip it. Treating telemetry as reactivating cancels a pause
+--                 at the next buffer-health row.
 WITH
     {tolerance_s:UInt32} AS tol,
     {pause_inactive:UInt8} AS pause_off,
-    marked AS
+    collapsed AS
     (
-        -- One row per (session, second). Events routinely share a timestamp: a client
-        -- emits BufferStart / video_forward / dropped-frames in the same millisecond.
-        -- Left un-collapsed, leadInFrame picks an arbitrary tied row, so the next-event
-        -- lookup returns the same timestamp and the segment falls through to the full gap
-        -- cap. Tie order is not stable between engines, which made concurrency
-        -- non-deterministic. min(is_open): a close at an instant beats an open.
+        -- one row per (session, millisecond); min() skips NULLs, so a decisive event beats
+        -- simultaneous telemetry, and a close beats an open at the same instant
         SELECT
             video_session_id,
             any(user_id)    AS user_id,
@@ -32,43 +30,44 @@ WITH
             any(platform)   AS platform,
             any(country)    AS country,
             ts,
-            min(is_open)    AS is_open
+            min(cls)        AS cls
         FROM
         (
             SELECT
-                video_session_id,
-                user_id,
-                content_id,
-                platform,
-                country,
-                toDateTime(event_timestamp) AS ts,
+                video_session_id, user_id, content_id, platform, country,
+                event_timestamp AS ts,
                 multiIf(
                     event_type IN ('AppBackgrounded', 'VideoSessionEnd', 'VideoError'), 0,
-                    pause_off AND event IN ('pause', 'speed-pause', 'AdPause'), 0,
-                    1) AS is_open
+                    pause_off AND event_type = 'VideoHeartbeat'
+                        AND event IN ('pause', 'speed-pause', 'AdPause'), 0,
+                    event_type IN ('VideoSessionStart', 'VideoPlay', 'AppForegrounded'), 1,
+                    event_type = 'VideoHeartbeat'
+                        AND event IN ('resume', 'speed-resume', 'AdResume'), 1,
+                    NULL) AS cls
             -- events_src: a view the runner defines. Locally it wraps file() and converts
-            -- epoch millis; in the Cloud service it is just raw_events. Same SQL either way.
+            -- epoch millis; in the service it is raw_events. Same SQL either way.
             FROM events_src
         )
         GROUP BY video_session_id, ts
     ),
+    stated AS
+    (
+        SELECT
+            video_session_id, user_id, content_id, platform, country, ts,
+            coalesce(argMax(cls, if(cls IS NULL, toDateTime64(0, 3), ts)) OVER (
+                PARTITION BY video_session_id ORDER BY ts ASC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 1) AS is_open
+        FROM collapsed
+    ),
     segments AS
     (
         SELECT
-            video_session_id,
-            user_id,
-            content_id,
-            platform,
-            country,
-            ts AS seg_start,
+            video_session_id, user_id, ts AS seg_start, is_open,
             leadInFrame(ts) OVER (
                 PARTITION BY video_session_id ORDER BY ts ASC
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS next_ts,
-            -- an open event is active until the next event, capped by the gap tolerance.
-            -- next_ts = 0 means last event of the session: it runs to the cap.
-            least(if(next_ts > seg_start, next_ts, seg_start + tol), seg_start + tol) AS seg_end,
-            is_open
-        FROM marked
+            least(if(next_ts > seg_start, next_ts, seg_start + tol), seg_start + tol) AS seg_end
+        FROM stated
     )
 SELECT
     minute,
@@ -81,7 +80,9 @@ FROM
         user_id,
         -- half-open [seg_start, seg_end): dur-1 keeps a segment that lands exactly on a
         -- minute boundary from claiming the minute it never entered
-        arrayJoin(timeSlots(seg_start, toUInt32(greatest(dateDiff('second', seg_start, seg_end) - 1, 0)), 60)) AS minute
+        arrayJoin(timeSlots(toDateTime(seg_start),
+                            toUInt32(greatest(dateDiff('second', seg_start, seg_end) - 1, 0)),
+                            60)) AS minute
     FROM segments
     WHERE is_open = 1
 )

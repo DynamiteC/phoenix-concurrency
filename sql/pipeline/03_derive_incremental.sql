@@ -40,29 +40,11 @@ FROM
 INSERT INTO session_minute_runs
 WITH
     {tolerance_s:UInt32} AS tol,
-    {pause_inactive:UInt8} AS pause_off,
     touched AS
     (
         SELECT DISTINCT video_session_id FROM raw_events
         WHERE event_timestamp >= parseDateTimeBestEffort({from_ts:String})
           AND event_timestamp <  parseDateTimeBestEffort({to_ts:String})
-    ),
-    marked AS
-    (
-        SELECT video_session_id, ts, min(is_open) AS is_open
-        FROM
-        (
-            SELECT
-                video_session_id,
-                toDateTime(event_timestamp) AS ts,
-                multiIf(
-                    event_type IN ('AppBackgrounded', 'VideoSessionEnd', 'VideoError'), 0,
-                    pause_off AND event IN ('pause', 'speed-pause', 'AdPause'), 0,
-                    1) AS is_open
-            FROM raw_events
-            WHERE video_session_id IN (SELECT video_session_id FROM touched)
-        )
-        GROUP BY video_session_id, ts
     ),
     dims AS
     (
@@ -82,19 +64,20 @@ WITH
         SELECT
             video_session_id,
             ts AS interval_start,
+            if({pause_inactive:UInt8}, is_open, is_open_pause_active) AS is_open,
             leadInFrame(ts) OVER (
                 PARTITION BY video_session_id ORDER BY ts ASC
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS next_ts,
-            least(if(next_ts > ts, next_ts, ts + tol), ts + tol) AS interval_end,
-            is_open
-        FROM marked
+            least(if(next_ts > ts, next_ts, ts + tol), ts + tol) AS interval_end
+        FROM event_state
+        WHERE video_session_id IN (SELECT video_session_id FROM touched)
     ),
     per_session AS
     (
         SELECT
             video_session_id,
             arraySort(groupUniqArrayArray(
-                timeSlots(interval_start,
+                timeSlots(toDateTime(interval_start),
                           toUInt32(greatest(dateDiff('second', interval_start, interval_end) - 1, 0)),
                           60))) AS minutes
         FROM segments
