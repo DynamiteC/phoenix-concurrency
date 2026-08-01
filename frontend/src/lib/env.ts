@@ -34,13 +34,14 @@ export const CH_USER = process.env.CH_USER || 'default'
 export const CH_PASSWORD = process.env.CH_PASSWORD || ''
 export const CH_DATABASE = process.env.CH_DATABASE || 'default'
 
-// The isolation boundary, shared with scripts/ch.sh (which defaults it identically).
+// The isolation boundary, still a parameter on every serving query, but OFF by default.
 //
-// The dashboard reads the SAME validated corpus every artifact in evidence/ was measured on,
-// so the number a judge sees on screen is the number in the ledger. That matters because
-// concurrency_deltas is NOT static: live ingest reaches it (measured this session, max minute
-// ran ahead of the frozen boundary while raw_events grew), so without this predicate the
-// headline average would drift away from every committed figure between two page refreshes.
+// It used to default to 2026-08-01, which pinned the dashboard to the validated corpus so the
+// number on screen equalled the number in evidence/. The cost of that is a console that cannot
+// show live ingest: the header counters moved while the curve stayed on a slice that ended days
+// earlier. Live is what this app is for, so the default horizon is now far-future, which makes
+// `minute < {frozen_before}` a no-op rather than deleting the predicate from the SQL.
 //
-// /api/status deliberately does NOT apply it: that route's job is to show live ingest moving.
-export const FROZEN_BEFORE = process.env.FROZEN_BEFORE || '2026-08-01'
+// Set FROZEN_BEFORE=2026-08-01 in the environment to restore evidence parity for a comparison
+// run: the queries are unchanged, so the frozen figures reproduce exactly.
+export const FROZEN_BEFORE = process.env.FROZEN_BEFORE || '2100-01-01'

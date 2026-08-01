@@ -1,6 +1,7 @@
 'use client'
 
 import type {StatusResponse} from '@/lib/types'
+import {istDateTime} from '@/lib/time'
 import styles from './ConsoleHeader.module.css'
 
 interface Props {
@@ -29,8 +30,8 @@ export default function ConsoleHeader({status, error}: Props) {
           <span className="mono-label">events ingested</span>
         </div>
         <div className={styles.metric}>
-          <span className={styles.metricValue}>{status?.latestEvent?.slice(0, 16) ?? '--'}</span>
-          <span className="mono-label">latest event, UTC</span>
+          <span className={styles.metricValue}>{status ? istDateTime(status.latestEvent) : '--'}</span>
+          <span className="mono-label">latest event, IST</span>
         </div>
       </div>
     </header>
