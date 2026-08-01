@@ -11,9 +11,9 @@ All figures are `phoenix_next`, the generation-2 replica. `phoenix` is not writt
 |---|---|---:|---:|---:|---:|---:|---|
 | `session_insight_facts` | `clickhouse local` over the raw CSV, own state machine | 10,866 | 31 | 0 | 0 | 0 | PASS |
 | `audience_minute_snapshot` | authoritative `concurrency_deltas` and `user_concurrency_deltas` curves | 3,663 minutes | 3 | 0 | 0 | 0 | PASS |
+| `content_entry_cohorts` | recomputed from `foreground_intervals` and `raw_events` | 8,530 cohorts | 9 | 0 | 0 | 0 | PASS |
+| `playback_health_minute` | recomputed from `foreground_intervals` and `raw_events` | 296 minute-tuples | 4 | 0 | 0 | 0 | PASS |
 | `session_state_transitions` | | | | | | | not started |
-| `playback_health_minute` | | | | | | | not started |
-| `content_entry_cohorts` | | | | | | | not started |
 | `concurrency_spike_events` | | | | | | | not started |
 
 `[V:insight_parity_session_facts]`. Two engines and two implementations: the optimized side reads
@@ -72,6 +72,8 @@ the first minute of the series. Opposite key orders, same reasoning applied to d
 |---|---|---|---:|---:|---:|---|
 | `session_facts_app_version_health` | `session_insight_facts` | content | 21,732 | 2,243,290 | 27 / 20 ms | **no** |
 | `audience_snapshot_minute_trend` | `audience_minute_snapshot` | content | 96,216 | 5,015,770 | 38 / 56 ms | **no** |
+| `cohorts_retention_curve` | `content_entry_cohorts` | content | 8,181 | 361,131 | | **no** |
+| `health_incident_window` | `playback_health_minute` | content | 192,434 | 5,413,480 | | **no** |
 
 `[V:insight_bench_session_facts_app_version_health]`, six filter shapes, `use_query_cache = 0`.
 Budget committed on the query as `SETTINGS max_rows_to_read = 65199, max_bytes_to_read = 6729870`,
@@ -91,6 +93,34 @@ times volume in Stage 5.
 10,866 sessions, because the refresh had run twice and no merge had collapsed them yet. An
 incremental refresh touches only changed sessions; the full refresh measured here is the worst
 case. The 3x multiplier absorbs version accumulation as much as data growth.
+
+### Cohorts and health
+
+Both use the weaker, server-side reference kind, and both re-derive from `foreground_intervals`
+and `raw_events` rather than from the tables their pipelines read. That matters: a reference that
+reads `session_insight_facts` and applies the same `GROUP BY` as the refresh would only prove
+ClickHouse can add. Going back to the intervals re-derives `first_active_at`, the retention flags,
+the timeout test and the dimension attribution independently, so an error in either refresh has
+somewhere to show up. What they cannot catch is an error in `foreground_intervals` itself, and they
+do not need to: `session_insight_facts` is already checked against a second engine.
+
+Two things are deliberately excluded from both comparisons, and the files say so rather than
+leaving it to be noticed. Ratios are not compared, because they are counts divided by a denominator
+that is compared, so they add no information and two arithmetically identical `Float32` values can
+render differently and fail on formatting. And `active_sessions` in the health pair is not
+compared, because it is copied verbatim from `audience_minute_snapshot`, which has its own gate
+against the authoritative curve.
+
+**The health gate failed on its first run with 8,247 missing keys, and neither side was wrong about
+a number.** The reference grouped every session's last active minute, so it emitted a row for each
+ordinary session ending normally and on time with all three counts zero, while the optimized side
+filtered those out. Both said zero; one said it out loud. The filter now matches on both sides.
+
+`cohorts_retention_curve` is the cheapest query in the layer by an order of magnitude, 8,181 rows
+against the snapshot's 96,216, which is exactly the argument for pre-aggregating a cohort grain.
+`health_incident_window` is the most expensive, because the health table carries a row for every
+minute a tuple was active whether or not anything went wrong. Storing only troubled minutes would
+make it cheap and the abandonment RATE unanswerable, since the denominator would be gone.
 
 ## 10x and 100x
 

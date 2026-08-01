@@ -56,13 +56,17 @@ validate() {
   elif [ -f "$ref" ]; then
     mode="server-side reference: $ref (already-validated table)"
     echo "== $name: reference query on $DB" >&2
-    ./scripts/ch.sh --format TSV --queries-file "$ref" 2>/dev/null | LC_ALL=C sort > "$TMP/gt"
+    # tolerance_s passed to both sides: a reference that re-derives a timeout must use the
+    # same gap the pipeline used, or it disagrees over a configuration rather than a bug.
+    ./scripts/ch.sh --format TSV --param_tolerance_s="${TOLERANCE_S:-90}" \
+      --queries-file "$ref" 2>/dev/null | LC_ALL=C sort > "$TMP/gt"
   else
     echo "skip $name: no reference of either kind" >&2; return 0
   fi
 
   echo "== $name: optimized over $DB" >&2
-  ./scripts/ch.sh --format TSV --queries-file "$op" 2>/dev/null | LC_ALL=C sort > "$TMP/op"
+  ./scripts/ch.sh --format TSV --param_tolerance_s="${TOLERANCE_S:-90}" \
+    --queries-file "$op" 2>/dev/null | LC_ALL=C sort > "$TMP/op"
 
   cut -f1 "$TMP/gt" > "$TMP/kgt"
   cut -f1 "$TMP/op" > "$TMP/kop"
