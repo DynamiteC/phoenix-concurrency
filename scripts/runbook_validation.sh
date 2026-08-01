@@ -168,6 +168,18 @@ q() { ./scripts/ch.sh --format TSVRaw --query "$1" 2>/dev/null | head -1; }
   printf '29\tbenchmark_concurrency_sql_rows\t%s\n'         "$(echo "$_curve_out" | wc -l | tr -d ' ')"
   printf '29\tbenchmark_concurrency_sql_average\t%s\n'      "$(echo "$_curve_out" | head -1 | cut -f5)"
 
+  # T30b. All three candidate denominators, recorded every run so "all three measured, primary
+  # labelled" (TASK.md 3.1) is a fact in evidence/ rather than a sentence in a document. Emitted as
+  # definition=value:denominator so a reader cannot see an average without seeing what it divided by,
+  # which is the entire failure mode this project has paid for twice.
+  ./scripts/ch.sh --format TSVRaw --param_from_ts '2026-07-26 00:00:00' \
+    --param_to_ts '2026-07-27 00:00:00' --param_platform '' --param_country '' --param_video_type '' \
+    --param_app_version '' --param_content_id 0 \
+    --queries-file sql/queries/serving/average_definitions.sql 2>/dev/null \
+  | while IFS=$'\t' read -r _def _role _avg _den _; do
+      printf '30b\taverage.%s\t%s over %s minutes (%s)\n' "$_def" "$_avg" "$_den" "$_role"
+    done
+
   # T33. No platform/country aliasing exists. video_type carries an empty string, from the
   # deliberate LEFT JOIN that keeps playback whose content metadata is missing.
   printf '33\tvideo_types\t%s\n' "$(q "SELECT arrayStringConcat(arraySort(groupUniqArray(video_type)),'|') FROM concurrency_deltas WHERE minute < {frozen_before:String}")"
