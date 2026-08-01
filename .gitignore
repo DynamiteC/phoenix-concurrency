@@ -16,3 +16,13 @@ derive_tick.*.log
 # Local ingest cursor: which synthetic sessions are still alive. Runtime state, like
 # .derive_watermark.*, and meaningless on another machine.
 .ingest_arrivals.*
+
+# Live-demo runtime artifacts. Logs and producer/orchestrator state are per-run and per-machine;
+# committing them would make every demo run show up as a diff.
+*.log
+.live_producer.*
+.live_demo.*.pids
+.ingest_arrivals.*
+# Generated spike fixtures: reproducible byte-for-byte from generate_spike_scenarios.py with the
+# recorded seed, so the manifest is the artifact worth keeping, not the 120 MB of CSV.
+data/generated/*.csv

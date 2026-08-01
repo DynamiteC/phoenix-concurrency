@@ -31,8 +31,30 @@ flock 9
 CHT() { ./scripts/ch.sh --select_sequential_consistency=1 "$@"; }
 val() { CHT --format TSVRaw --query "$1" 2>/dev/null | head -1; }
 
-max_ts="$(val "SELECT toString(max(event_timestamp)) FROM raw_events")"
+# CLAMPED TO now(). A watermark driven by max(event_timestamp) trusts the data to be honest about
+# time, and one future-dated row poisons it permanently: the watermark jumps ahead, every
+# subsequent tick computes from_ts >= max_ts, logs "nothing new", and the served curve freezes
+# while ingest looks perfectly healthy.
+#
+# Not hypothetical. phoenix_next holds the spike-sustainability fixtures, which the spec pins at
+# 2026-08-02 06:00 and 07:00 UTC -- roughly eight hours ahead of wall clock when they were loaded.
+# Measured immediately after: the console reported LAG_S = -31195 (negative lag: the newest event
+# is in the future) and CONCURRENT = 0 while the producer was inserting ~54,000 rows per cycle.
+# Live traffic was landing and nothing was deriving it.
+#
+# Clock skew on a real client does exactly the same thing, so this is a production guard and not a
+# workaround for a fixture. Future-dated rows are not lost: they are derived by an EXPLICIT window
+# (scripts/spike_scenarios.sh passes its own from_ts/to_ts) or by the tick that runs once wall
+# clock catches up.
+max_ts="$(val "SELECT toString(least(max(event_timestamp), now64(3))) FROM raw_events")"
 [ -n "$max_ts" ] || { echo "$(date -u +%FT%TZ) $DB no data reachable, skipping" >>"$LOG"; exit 0; }
+
+# A watermark already past the clamp means a previous tick recorded a future instant. Roll it back
+# rather than idling forever waiting for wall clock to catch up.
+if [ -s "$WM_FILE" ] && [ "$(val "SELECT parseDateTime64BestEffort('$(cat "$WM_FILE")', 3) > now64(3)")" = "1" ]; then
+  echo "$(date -u +%FT%TZ) $DB watermark $(cat "$WM_FILE") is in the FUTURE, resetting to $max_ts" >>"$LOG"
+  echo "$max_ts" > "$WM_FILE"
+fi
 
 if [ -s "$WM_FILE" ]; then
   from_ts="$(val "SELECT toString(parseDateTimeBestEffort('$(cat "$WM_FILE")') - INTERVAL $OVERLAP_S SECOND)")"
