@@ -30,9 +30,59 @@ Data dictionary: [`docs/problem/dataset_details.md`](docs/problem/dataset_detail
 
 ## Architecture
 
-<!-- TODO: diagram. raw events -> foreground-interval derivation -> serving layer -> dashboard -->
-_Not decided yet. Options and the reasoning behind the choice go in
-[`docs/assumptions.md`](docs/assumptions.md) as they are made, not reconstructed at 3am._
+Events become foreground intervals, intervals merge into per-session minute runs, runs emit
+`+1` / `-1` deltas, and a cumulative sum over the deltas is the concurrency curve. Cost tracks
+interval boundaries rather than watch time, so a three-hour session costs the same two rows as
+a two-minute one, and 232 MB of CSV becomes a **61 KiB** serving table.
+
+```mermaid
+flowchart LR
+    CSV["CSV<br/>905,558 events"] --> LAND["raw_events_landing<br/>ENGINE = Null"]
+    LAND -->|MV| RAW[("raw_events<br/>4.12 MiB")]
+    RAW --> ST{{"event_state<br/>3-bucket state machine<br/>unknown = neutral"}}
+    ST --> FI[("foreground_intervals<br/>599,137")]
+    FI --> SMR[("session_minute_runs<br/>17,604 asserted<br/>Collapsing")]
+    ST -.->|incremental:<br/>retract + re-assert| SMR
+    SMR -->|MV| CD[("concurrency_deltas<br/>61 KiB")]
+    SMR --> UMR[("user_minute_runs")] -->|MV| UCD[("user_concurrency_deltas")]
+    CD --> Q["serving queries<br/>seeded cumulative sum<br/>peak + both averages"]
+    UCD --> Q
+    Q --> D["dashboard"]
+```
+
+Full reasoning, with the measured cost of every choice, in
+[`docs/problem/DESIGN.md`](docs/problem/DESIGN.md). Table-by-table detail in
+[`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
+
+### Proven numbers
+
+Each links to a command and an artifact via [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv).
+Nothing here is quoted from memory.
+
+| Claim | Number | Reproduce |
+|---|---|---|
+| Peak concurrent sessions | 2,829 at 2026-07-26 10:56 | `./scripts/ground_state.sh` |
+| Naive session-span counting overstates peak by | **32.3 percent** | `./scripts/naive_baseline.sh` |
+| Minutes where naive invents an audience | 1,592 | `./scripts/naive_baseline.sh` |
+| Serving vs brute-force oracle | 3,664 minutes, **0 diffs** | `./scripts/parity.sh` |
+| Open sessions absorbed incrementally | 5,316 minutes, **0 diffs** | `./scripts/test_open_sessions.sh 30` |
+| Unfiltered query reads | 26,904 rows in 10 ms | `./scripts/bench.sh` |
+| Platform filter prunes to | 16,384 rows, 2/4 granules | `./scripts/bench.sh` |
+| Full rebuild, CSV to verified serving layer | **70 seconds** | `./scripts/rehearse_runbook.sh` |
+| Data-quality invariants | 6 of 6 at required value | `./scripts/ground_state.sh` |
+
+## Documentation
+
+| Start here | |
+|---|---|
+| [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started, owners |
+| [`docs/GROUND_STATE.md`](docs/GROUND_STATE.md) | What is actually on the server, measured |
+| [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
+| [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Decisions, trade-offs, the filter-shape read table |
+| [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
+| [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) | Exact steps for the sealed drop, rehearsed |
+| [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) | Any claim to the command that produced it, in one hop |
+| [`docs/issues/`](docs/issues/) | Findings on ingest, which is a teammate's and untouched |
 
 ## Layout
 
