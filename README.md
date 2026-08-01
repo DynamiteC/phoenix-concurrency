@@ -42,6 +42,8 @@ docs/           assumptions.md, the living decision log
 sql/schema/     DDL, one file per table
 sql/queries/    benchmark and validation queries
 scripts/        load.sh (CSV -> ClickHouse), profile.sh (dataset facts)
+demo/           single-file vanilla JS dashboard (no build step)
+frontend/       Next.js (App Router, TypeScript) dashboard, see frontend/README.md
 pitch/          slides and demo notes
 data/           gitignored, the CSVs never enter version control
 ```
