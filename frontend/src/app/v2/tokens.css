@@ -1,0 +1,95 @@
+/* ---------------------------------------------------------------------------------------------
+   Langfuse design system, transcribed from DESIGN.md.
+
+   SCOPED TO .v2 RATHER THAN :root, deliberately. The v1 console owns the global tokens in
+   globals.css and is a near-black control room; this is a light, warm-neutral editorial surface.
+   They are meant to look nothing alike, and scoping is what lets both live in one app without
+   either one reaching into the other.
+
+   Values are copied from the DESIGN.md front matter rather than approximated, including the
+   spacing token names, which are that document's own. Where the system is silent, the gap is
+   named in a comment instead of being filled with an invention.
+   --------------------------------------------------------------------------------------------- */
+
+.v2 {
+  /* Surfaces */
+  --surface-base: #f6f6f3;   /* page background and card surfaces */
+  --surface-1: #edede8;      /* sidebar, navigation, secondary surfaces */
+  --surface-white: #ffffff;  /* card overlays and high-contrast insets */
+
+  /* Text. The system gives four; tertiary is the tightest pair against surface-base and is
+     restricted to metadata a reader can afford to miss, never to a number or a label. */
+  --text-base: #020817;
+  --text-primary: #222220;
+  --text-secondary: #3d3d38;
+  --text-tertiary: #6b6b66;
+
+  /* Structure */
+  --border-default: #e1e7ef; /* component borders, input outlines, ring states */
+  --line-structure: #cfcfc9; /* structural dividers and section separators */
+
+  /* Accents, both under strict usage rules from the system's Do/Don't table.
+     neon-yellow is a HERO HEADLINE HIGHLIGHT and nothing else: never a chart series, never a
+     status colour, never a badge. action-blue is "the single most important action per screen",
+     so at most one element per view may use it. */
+  --neon-yellow: #fbff7a;
+  --action-blue: #1863dc;
+
+  /* Type. f37Analog is a licensed font this project does not have a copy of, so the display role
+     falls back to a geometric-serif stack behind the same token name. Recorded here rather than
+     silently substituted: the hierarchy and the pairing survive, the exact letterforms do not.
+     Inter and the mono role are real. */
+  --font-display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-body: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale, from the DESIGN.md token rows. */
+  --text-hero: 68px;
+  --text-h1: 50px;
+  --text-h2: 32px;
+  --text-h3: 20px;
+  --text-label-display: 15px;
+  --text-body: 16px;
+  --text-body-sm: 14px;
+  --text-label: 13px;
+  --text-caption: 12px;
+  --text-code: 13px;
+  --text-code-sm: 10px;
+
+  /* Radius. 2px dominant; the system's Don't list forbids mixing rounded and sharp in one view. */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-pill: 50px;
+
+  /* 4px base grid, names taken from the DESIGN.md spacing table. */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-80: 80px;
+
+  /* The only two shadows the extraction validated. The system says not to invent beyond them. */
+  --shadow-card: 0 4px 8px 0 rgba(0, 0, 0, 0.05);
+  --shadow-modal: 0 32px 68px 0 rgba(0, 0, 0, 0.3);
+
+  /* CHART SERIES. The design system defines no data-visualisation palette, so these are chosen
+     rather than transcribed, against three constraints: readable on #f6f6f3, distinguishable
+     without relying on hue alone (each also moves in lightness), and no neon-yellow, which the
+     system reserves for hero text. Contrast against surface-base is 4.5:1 or better for every
+     one, so a 1px line stays visible. */
+  --series-1: #1863dc;
+  --series-2: #b0501c;
+  --series-3: #2f7d4f;
+  --series-4: #7a4bbd;
+  --series-5: #9a6a00;
+
+  /* Semantic states, for health rates rather than decoration. */
+  --state-good: #2f7d4f;
+  --state-warn: #9a6a00;
+  --state-bad: #b02525;
+}

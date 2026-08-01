@@ -1,0 +1,390 @@
+/* Layout follows the design system's own shape: persistent left sidebar, content column, generous
+   gutters at the wide breakpoint. Every value below comes from a token in tokens.css. */
+
+.page {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-body-sm);
+}
+
+@media (max-width: 1024px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- sidebar ---- */
+
+.sidebar {
+  background: var(--surface-1);
+  border-right: 1px solid var(--line-structure);
+  padding: var(--spacing-24) var(--spacing-20);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-32);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-8);
+}
+
+.brandMark {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.14em;
+  color: var(--text-primary);
+}
+
+.brandSub {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  color: var(--text-secondary);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.navItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: var(--spacing-8) var(--spacing-12);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.navItem:hover {
+  background: var(--surface-white);
+  border-color: var(--border-default);
+}
+
+.navItem:focus-visible {
+  outline: 3px solid var(--text-base);
+  outline-offset: 0;
+}
+
+.navItemActive {
+  background: var(--surface-white);
+  border-color: var(--line-structure);
+  box-shadow: var(--shadow-card);
+}
+
+.navLabel {
+  font-family: var(--font-display);
+  font-size: var(--text-label-display);
+  color: var(--text-primary);
+}
+
+.navBlurb {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.sidebarFoot {
+  margin-top: auto;
+  border-top: 1px solid var(--line-structure);
+  padding-top: var(--spacing-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.footLabel {
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.footValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-code);
+  color: var(--text-primary);
+}
+
+.footNote {
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* ---- main ---- */
+
+.main {
+  padding: var(--spacing-40) var(--spacing-40) var(--spacing-80);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-24);
+  max-width: 1180px;
+}
+
+@media (min-width: 1520px) {
+  .main {
+    padding-left: var(--spacing-80);
+    padding-right: var(--spacing-80);
+  }
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-16);
+}
+
+.heroTitle {
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4vw, 50px);
+  font-weight: 500;
+  line-height: 1.04;
+  color: var(--text-primary);
+}
+
+/* The signature accent, and the ONLY place it appears in this console. The system reserves
+   neon-yellow for hero headline text; it is never a series, a badge, or a state. */
+.mark {
+  background: var(--neon-yellow);
+  color: var(--text-primary);
+  padding: 0 var(--spacing-4);
+}
+
+.heroLede {
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 62ch;
+}
+
+/* ---- watermarks ---- */
+
+.watermarks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  background: var(--border-default);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.watermark {
+  background: var(--surface-white);
+  padding: var(--spacing-12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wmLabel {
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.wmValue {
+  font-family: var(--font-mono);
+  font-size: var(--text-code);
+  color: var(--text-primary);
+}
+
+.wmLag {
+  font-size: var(--text-caption);
+  color: var(--state-good);
+}
+
+.wmLagStale {
+  color: var(--state-bad);
+}
+
+.wmExtra {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+/* ---- notice ---- */
+
+.notice {
+  background: var(--surface-white);
+  border: 1px solid var(--line-structure);
+  border-left: 3px solid var(--state-warn);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-12) var(--spacing-16);
+  font-size: var(--text-body-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 82ch;
+}
+
+.notice strong {
+  color: var(--text-primary);
+}
+
+/* ---- panel ---- */
+
+.panel {
+  background: var(--surface-white);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.panelHead {
+  padding: var(--spacing-20) var(--spacing-20) var(--spacing-16);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Gate B evidence, on screen rather than filed: what it read, and what that cost. */
+.evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-16);
+}
+
+.evidenceItem {
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
+}
+
+.evidenceItem code {
+  font-family: var(--font-mono);
+  font-size: var(--text-code-sm);
+  color: var(--text-secondary);
+}
+
+/* ---- table ---- */
+
+.tableWrap {
+  overflow-x: auto;
+  max-height: 32rem;
+  overflow-y: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-label);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-align: left;
+  padding: var(--spacing-8) var(--spacing-16);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.table td {
+  padding: var(--spacing-8) var(--spacing-16);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+  position: relative;
+  color: var(--text-primary);
+}
+
+.table tbody tr:hover td {
+  background: var(--surface-base);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.cellValue {
+  position: relative;
+}
+
+/* Magnitude bar, behind the leading measure. Low-opacity so the number stays the thing you read. */
+.barTrack {
+  position: absolute;
+  inset: 2px 4px;
+  display: block;
+  pointer-events: none;
+}
+
+.barFill {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: block;
+  background: var(--series-1);
+  opacity: 0.14;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- states ---- */
+
+.empty,
+.loading {
+  padding: var(--spacing-20);
+  font-size: var(--text-body-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 78ch;
+}
+
+.error {
+  padding: var(--spacing-12) var(--spacing-16);
+  border: 1px solid var(--state-bad);
+  border-radius: var(--radius-sm);
+  background: var(--surface-white);
+  color: var(--state-bad);
+  font-size: var(--text-body-sm);
+}
+
+/* ---- window selector ---- */
+
+.rangeBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+
+.select {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  color: var(--text-primary);
+  background: var(--surface-white);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-8);
+}
+
+.select:focus-visible {
+  outline: 3px solid var(--text-base);
+  outline-offset: 0;
+}
