@@ -61,14 +61,27 @@ _ev_data_stamp() {
 # in place on re-run: a judge following a [V] tag wants the current artifact in one hop, and
 # superseded rows are still in git history where an audit trail belongs.
 LEDGER="evidence/LEDGER.tsv"
+#
+# fail_kind sits between status and verified_at_sha, per TASK.md 0.3: `finding` means the gate
+# worked and recorded a real negative result, `broken` means the gate itself is broken. Empty for
+# anything that is not FAIL.
+#
+# THIS COLUMN WAS ADDED TO THE DATA BEFORE IT WAS ADDED HERE, and every row written in between
+# came out with 7 fields instead of 8, which silently shifted the sha into the fail_kind column for
+# 10 rows. check_docs.sh did not notice because it reads artifact_path at column 4, which is
+# unaffected either way. That is why it now asserts the field count too: a ledger that is ragged in
+# its last columns still passes every check that only looks at its first four.
 _ev_ledger() {
-  local claim_id="$1" claim="$2" script="$3" artifact="$4" status="$5" sha="$6" utc="$7"
+  local claim_id="$1" claim="$2" script="$3" artifact="$4" status="$5" sha="$6" utc="$7" fail_kind="${8:-}"
   mkdir -p evidence
-  [ -f "$LEDGER" ] || printf 'claim_id\tclaim\tcommand_or_script\tartifact_path\tstatus\tverified_at_sha\tverified_at_utc\n' > "$LEDGER"
+  [ -f "$LEDGER" ] || printf 'claim_id\tclaim\tcommand_or_script\tartifact_path\tstatus\tfail_kind\tverified_at_sha\tverified_at_utc\n' > "$LEDGER"
+  # A FAIL with no explicit kind defaults to `finding`: a gate that ran and returned a negative
+  # result is the common case, and defaulting to `broken` would cry rot on every honest red row.
+  [ "$status" = FAIL ] && [ -z "$fail_kind" ] && fail_kind=finding
   local tmp="${LEDGER}.tmp.$$"
   awk -F'\t' -v id="$claim_id" 'NR==1 || $1 != id' "$LEDGER" > "$tmp"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$claim_id" "$claim" "$script" "$artifact" "$status" "$sha" "$utc" >> "$tmp"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$claim_id" "$claim" "$script" "$artifact" "$status" "$fail_kind" "$sha" "$utc" >> "$tmp"
   mv "$tmp" "$LEDGER"
 }
 

@@ -57,7 +57,31 @@ previous values and are kept deliberately as the audit trail.
 
 | Item | State | Blocker | Owner |
 |---|---|---|---|
-| Read budgets after the rebuild | Re-measured, still valid: worst shape 30,662 rows against the committed 80,712 ceiling, 490,592 bytes against 1,291,392. No change needed. One bench shape (`country`) returned `NA` because its `query_log` lookup did not resolve; the other seven are complete. | Re-run `./scripts/bench.sh` to fill that one cell | unassigned |
+| Read budgets after the rebuild | Re-measured: worst shape 30,662 rows against the committed 80,712 ceiling, 490,592 bytes against 1,291,392. Valid **today**, and see the countdown below, because this is a ceiling we are walking toward rather than a property we hold. One bench shape (`country`) returned `NA` because its `query_log` lookup did not resolve; the other seven are complete. | Re-run `./scripts/bench.sh` to fill that one cell | unassigned |
+
+### The read budget is a countdown, not a pass
+
+Stating this as a deadline rather than a checkmark, because the seeding test proved the mechanism.
+
+No time predicate prunes granules `[V:seeding_position]`, so the curve query reads the **whole**
+delta table on every request regardless of the window or of `frozen_before`. The budget is
+therefore a function of table size alone.
+
+- `concurrency_deltas` today: **30,662** rows. Ceiling: **80,712**. Headroom: **50,050 rows**.
+- Observed growth during this session's active replay: roughly **8,500 rows per 45 minutes**.
+
+At that rate the ceiling is reached after roughly **four hours of continuous ingest**, and the
+failure mode is not a wrong number: the query raises `TOO_MANY_ROWS` and the dashboard returns 500.
+
+Two honest readings, and the team should pick one rather than let it happen:
+
+1. The ceiling assumes ingest is **not** left running indefinitely, which is true of the current
+   operator-started replay loop but is not a property of the design.
+2. If ingest becomes continuous, the fix is not a bigger number. It is day-boundary snapshots so the
+   cumulative sum stops needing the whole prefix, which is the same change the 100x question needs.
+
+**Owner: unassigned.** Raising the budget by reflex would convert a loud, early failure into a
+silent, slow one, and the runbook already says not to.
 
 ## Not started, or deliberately deferred
 

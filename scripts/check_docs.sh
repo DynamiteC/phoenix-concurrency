@@ -70,6 +70,23 @@ while IFS=$'\t' read -r _ _ _ path _; do
 done < evidence/LEDGER.tsv
 [ "$dangling" -eq 0 ] && echo "ok: every ledger row points at a file that exists" || fail=1
 
+# Every ledger row has the same number of fields as the header.
+#
+# Added because the ledger went ragged and nothing noticed. A column was inserted into the data
+# before the writer in scripts/lib/evidence.sh knew about it, so 14 rows came out one field short
+# and their verified_at_sha sat in the fail_kind column. The check above passed throughout, because
+# it reads artifact_path at column 4 and everything to the LEFT of the inserted column was fine.
+# A check that only looks at the first four fields cannot see damage in the last four.
+cols="$(head -1 evidence/LEDGER.tsv | awk -F'\t' '{print NF}')"
+ragged="$(awk -F'\t' -v n="$cols" 'NF != n {print NR": "NF" fields ("$1")"}' evidence/LEDGER.tsv)"
+if [ -n "$ragged" ]; then
+  echo "FAIL: ledger rows do not match the $cols-column header:" >&2
+  printf '  %s\n' "$ragged" >&2
+  fail=1
+else
+  echo "ok: every ledger row has $cols fields"
+fi
+
 # One source of truth for shipped query text. Separate script because it asserts a different
 # kind of property, but run from here so there is a single command to remember.
 ./scripts/check_query_sources.sh || fail=1
