@@ -142,7 +142,7 @@ ORDER BY role DESC, definition
 -- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
 -- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
 -- what a query SCANS and says nothing about how long it may run.
-SETTINGS max_rows_to_read = 80712,
-         max_bytes_to_read = 1291392,
+SETTINGS max_rows_to_read = 5000000,
+         max_bytes_to_read = 80000000,
          max_execution_time = 30,
          timeout_before_checking_execution_speed = 0;

@@ -74,12 +74,41 @@ export interface StatusResponse {
 }
 
 export interface DimensionValue {
-  dim: 'platform' | 'country' | 'video_type' | 'app_version'
+  dim: 'platform' | 'country' | 'video_type' | 'app_version' | 'content'
+  /** What the query parameter takes. For content this is the content_id as a string. */
   value: string
+  /** What a human reads. Equal to value for the four keyed dimensions; the title for content. */
+  label: string
 }
 
 export interface DimensionsResponse {
   values: DimensionValue[]
+}
+
+/** One session that is still open at the watermark. */
+export interface OpenSessionRow {
+  videoSessionId: string
+  platform: string
+  country: string
+  contentId: number
+  lastEvent: string
+  /** last_event + tolerance: how far the current answer already counts this session. */
+  countedUntil: string
+  /** Seconds of the current answer that a later heartbeat is still allowed to retract. */
+  provisionalSeconds: number
+  backgrounds: number
+}
+
+export interface OpenSessionsResponse {
+  asOf: string
+  toleranceSeconds: number
+  /** Totals over EVERY open session, not over `rows`, which is one capped page. */
+  openSessions: number
+  provisionalSecondsTotal: number
+  openWithBackground: number
+  rows: OpenSessionRow[]
+  ms: number
+  rowsRead?: number
 }
 
 export interface ApiError {

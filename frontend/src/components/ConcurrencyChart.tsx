@@ -2,6 +2,7 @@
 
 import {useRef, useState} from 'react'
 import type {ConcurrencyPoint} from '@/lib/types'
+import {istDateTime, istTime} from '@/lib/time'
 import styles from './ConcurrencyChart.module.css'
 
 export interface ChartSeries {
@@ -9,7 +10,7 @@ export interface ChartSeries {
   color: string
   points: ConcurrencyPoint[]
   /** Reference lines + peak marker are only drawn when this is the sole series on the chart
-   *  (Sessions or Users mode) — in Compare mode two sets would clutter more than they inform. */
+   *  (Sessions or Users mode): in Compare mode two sets would clutter more than they inform. */
   avg?: number
   p95?: number
   peakMinute?: string
@@ -44,7 +45,7 @@ function pathFor(points: ConcurrencyPoint[], n: number, max: number): string {
  *
  * Beyond the raw curve: avg/p95 reference lines and a peak marker (single-series only), a live
  * pulsing dot on the most recent minute (so the chart reads as "still moving", not a snapshot),
- * and a hover crosshair with a tooltip that reads BOTH series at once — the exact minute-by-
+ * and a hover crosshair with a tooltip that reads BOTH series at once: the exact minute-by-
  * minute divergence Compare mode exists to show, not just the implied gap between two shapes.
  */
 export default function ConcurrencyChart({series}: Props) {
@@ -227,7 +228,7 @@ export default function ConcurrencyChart({series}: Props) {
                 y={H - 6}
                 textAnchor={frac === 0 ? 'start' : frac === 1 ? 'end' : 'middle'}
               >
-                {label}
+                {istTime(label)}
               </text>
             )
           })}
@@ -245,7 +246,7 @@ export default function ConcurrencyChart({series}: Props) {
 
       {hi != null && tooltipLeftPct != null && (
         <div className={styles.tooltip} style={{left: `${tooltipLeftPct}%`}}>
-          <div className={styles.tooltipTime}>{longest[hi]?.[0]}</div>
+          <div className={styles.tooltipTime}>{istDateTime(longest[hi]?.[0])}</div>
           {withPoints.map((s) => (
             <div key={s.label} className={styles.tooltipRow}>
               <span className={styles.swatch} style={{background: s.color}}/>
