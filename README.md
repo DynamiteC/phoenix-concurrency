@@ -87,7 +87,8 @@ that ran past their session's last `VideoSessionEnd`. Every restated figure is l
 | [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started, owners |
 | [`docs/GROUND_STATE.md`](docs/GROUND_STATE.md) | What is actually on the server, measured |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
-| [`docs/database_details.md`](docs/database_details.md) | Physical reference, plus the ClickHouse best-practice audit |
+| [`docs/database_details.md`](docs/database_details.md) | The data dictionary: every database, table, column, and which one answers which question |
+| [`docs/CLICKHOUSE_RULES_AUDIT.md`](docs/CLICKHOUSE_RULES_AUDIT.md) | The concurrency schema against the 31 ClickHouse best-practice rules |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every modelling decision, its options, and what each cost |
 | [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Trade-offs, the filter-shape read table, the invariant audit |
 | [`docs/clickstack.md`](docs/clickstack.md) | The ClickStack integration, and how to rebuild it from nothing |
