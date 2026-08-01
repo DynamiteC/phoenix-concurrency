@@ -17,4 +17,9 @@ UNION ALL
 SELECT 'video_type'  AS dim, video_type  AS value FROM concurrency_deltas WHERE minute < {frozen_before:String} GROUP BY 1, 2
 UNION ALL
 SELECT 'app_version' AS dim, app_version AS value FROM concurrency_deltas WHERE minute < {frozen_before:String} GROUP BY 1, 2
-ORDER BY dim, value;
+ORDER BY dim, value
+-- READ BUDGET, same contract as peak_average.sql: four full scans of the delta table is the
+-- worst shape by construction (no dimension leads all four). Measured 4 x 30,662 rows on the
+-- frozen slice; ceilings are 3x that. Recalibrate with scripts/bench.sh.
+SETTINGS max_rows_to_read = 367944,
+         max_bytes_to_read = 3400000;

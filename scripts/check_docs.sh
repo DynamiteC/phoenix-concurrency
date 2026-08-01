@@ -116,10 +116,12 @@ else
   #                          script. Reproducible and understood, merely undeclared. The mild
   #                          version of the problem.
   #
-  #   concurrency_boundary_deltas  18:02, hand-made, in no file here and in NEITHER guard list,
-  #                          so a REBUILD=1 derive fires its MV a second time and doubles it
-  #                          while sum(delta) still reads 0. The severe version. Needs its
-  #                          author, not an allowlist entry; this is a placeholder.
+  #   concurrency_boundary_deltas  18:02, hand-made. NO LONGER ALLOWLISTED: it is declared in
+  #                          sql/schema/06_exact_concurrency.sql as of D14, so the drift half is
+  #                          closed and an allowlist entry would now hide real future drift on
+  #                          it. The other half is still open and is not a drift problem: it is
+  #                          in neither derive guard list, so a REBUILD=1 derive fires its MV a
+  #                          second time and appends a duplicate set to a table nothing resets.
   #
   #   event_id               ALTERed onto raw_events, raw_events_landing and raw_events_mv,
   #                          18:20. Does NOT repeat the ingested_at defect: no DEFAULT
@@ -128,7 +130,7 @@ else
   #                          including rows ingested after the ALTER: a column ahead of its
   #                          producer.
   DRIFT_QUIET=1 \
-  DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv,concurrency_boundary_deltas,concurrency_deltas_naive,event_id' \
+  DRIFT_ALLOW='arrival_timestamp,mv_body raw_events_mv,concurrency_deltas_naive,event_id' \
     ./scripts/schema_drift.sh phoenix      2>&1 | grep -v 'Unknown settings' || fail=1
   DRIFT_QUIET=1 INSIGHTS=1 \
     ./scripts/schema_drift.sh phoenix_next 2>&1 | grep -v 'Unknown settings' || fail=1

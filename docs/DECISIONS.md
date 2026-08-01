@@ -270,3 +270,62 @@ a key nobody can vary is not forward compatibility. If a future event contract p
 upgrade is to add the column and re-key, and the DDL comment says so.
 
 **Decided:** 2026-08-01. **Evidence:** `[V:end_rule_first_vs_last]`, `[V:rebuild_swap_phoenix_next]`.
+
+## D14. Exact-resolution concurrency is boundary deltas, not per-second densification
+
+**Question.** The minute layer answers "how many sessions touched minute M", which quantizes both
+peak and average to minute buckets. Can the exact peak and exact time-weighted average be
+calculated directly without measuring every second?
+
+**Chosen:** boundary deltas only. Instantaneous concurrency only changes when an interval opens or
+closes, so a `+1` at each interval start and `-1` at each interval end makes the exact concurrency
+at any instant a cumulative sum. The exact peak provably occurs at a boundary and costs zero
+generated rows, just the boundaries themselves. No per-second densification is ever stored or
+scanned: a day costs only boundary-count rows, not 86,400.
+
+**The source is `foreground_intervals`, not a new run table.** Intervals within one session never
+overlap (measured: 0 self-overlapping of 725,157 intervals). Interval ends are already exclusive,
+so back-to-back intervals cancel at the shared boundary inside the `SummingMergeTree`, and a
+zero-length interval nets to zero, which is the correct instantaneous reading.
+
+**Guarded backfill:** `scripts/init_exact_layer.sh` runs exactly once, refusing a second run to
+avoid doubling every boundary delta. Four invariants asserted in `scripts/exact_layer_parity.sh`,
+all PASS: `net_delta=0`, `min_instantaneous=0`, `sessions_overlapping_self=0`,
+`minutes_exact_exceeds_touch=0`.
+
+**Values for 2026-07-26 (batch derive only):**
+
+| | Exact layer | Minute layer | Definition difference |
+|---|---|---|---|
+| Peak | 2,396 at 10:55:27 | 2,828 at 10:56:00 | Instantaneous coexistence at second boundary vs sessions that touched the minute |
+| Time-weighted average | 72.66 | 88.06 | seconds of actual viewing time / seconds in the range |
+
+**Known limitation, stated rather than hidden:** the incremental path bypasses `foreground_intervals`
+and writes `session_minute_runs` directly, so `concurrency_boundary_deltas` reflects the last batch
+derive, not open-session updates. The upgrade path is a second-resolution twin of
+`session_minute_runs` with the same retract/assert protocol; see `docs/DECISIONS.md`.
+
+**Decided:** 2026-08-01. **Evidence:** `[V:exact_layer_parity]`.
+
+## D15. Title and category filters resolve to a content_id set, never denormalize into the serving table
+
+**Question.** The serving layer reads dimensions like platform and country from the delta table's
+key, but title and category are attributes of `content_id`. Store them on the delta rows, or filter
+the content set and then read deltas by `content_id IN`?
+
+| Option | Cost |
+|---|---|
+| Denormalize title and category onto delta rows | Rebuild the serving table to fix a typo. The 33,464-row content dataset is fixed; a word choice on one row forces a delta table rewrite. |
+| Filter content, serve deltas by content_id | Chosen. Two-table scan rather than one, but title and category are immutable attributes of content_id and no serving state duplicates them. |
+| Use dictGet | Rejected. Proven nondeterministic per replica on this Cloud service: dictGet returned an empty string for keys an INNER JOIN matched, depending on which node served the query. See `sql/schema/02_content.sql`. |
+
+**Chosen:** filter-then-read. The serving query `sql/queries/serving/title_category_peak_average.sql`
+filters the content table first (33,464 rows) to get a `content_id` set, then reads
+`concurrency_deltas` with `content_id IN`. Evidence shows the path reads exactly those two tables
+and performs 64,126 row-level reads against the whole delta table, because the cumulative sum needs
+the full series and time predicates cannot prune the key's prefix; see D7.
+
+**Related:** the naive-baseline gate now writes a PASS artifact on success, so a recalibrated gate
+self-heals its ledger row instead of remaining a permanent stale FAIL.
+
+**Decided:** 2026-08-01. **Evidence:** `[V:title_category_serving]`.

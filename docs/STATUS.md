@@ -9,6 +9,12 @@ artifact, treat the row as wrong and say so.
 
 ## One-paragraph summary
 
+**2026-08-01 war-room re-validation:** fresh worktree of main, branch feature/war-room-validation.
+All 48 runbook checks re-measured, test 17 clean (0 intervals past session end), peak 2,828 average
+88.06 confirmed. New exact layer and title/category filters shipped with evidence. Naive baseline
+gate retired to PASS. Data quality now carries frozen predicate in all subqueries (905,558 frozen
+corpus).
+
 The pipeline works end to end and is validated against an independent brute-force oracle at zero
 diffs, on both derivation paths, against the queries actually shipped. The ClickStack integration
 is **built and running**, with HyperDX proven to read our Cloud service rather than its own bundled
@@ -98,8 +104,20 @@ which would have compared a replica's serving layer against phoenix's raw data a
 | Item | State | Blocker | Owner |
 |---|---|---|---|
 | **Four undeclared changes landed in `phoenix` during one session** | `scripts/schema_drift.sh` caught each within minutes of existing. In order: `idx_run_range` on `session_minute_runs` (16:57, now declared in `sql/schema/`); `concurrency_boundary_deltas` plus its MV (18:02, hand-made, in no guard list, see the row below); `concurrency_deltas_naive` (18:10, recreated by the committed `scripts/naive_baseline.sh`, merely undeclared); and `event_id` ALTERed onto `raw_events`, `raw_events_landing` and `raw_events_mv` (18:20). `event_id` does **not** repeat the `ingested_at` defect, having no DEFAULT expression, but all 3,198,714 rows read `''` including rows ingested after the ALTER, so it is a column ahead of its producer. All four are allowlisted with reasons in `check_docs.sh` so the gate is not red for everyone. | Each needs its author to say whether it stays, and if so a file in `sql/schema/`. `phoenix_next` is unaffected: it is built from the repo DDL and checks clean with no allowlist. | **unassigned** |
-| **`phoenix.concurrency_boundary_deltas` is undeclared production DDL, and a re-derive will double it** | Appeared in `phoenix` at 18:02 UTC on 2026-08-01, out of band, in no file in this repo: a `SummingMergeTree` at 79,371 rows plus a materialized view over `foreground_intervals`. Found by `scripts/schema_drift.sh` within minutes of that check existing. It is **absent from both guard lists**, `derive.sh:44` and `rebuild_swap.sh:33`, so `REBUILD=1 ./scripts/derive.sh` truncates the five tables it knows about, re-inserts into `foreground_intervals`, fires this MV a second time, and appends a whole duplicate set to a table nothing truncated. `sum(delta)` stays **0** throughout, because every duplicated `+1` brings its own `-1`. That is the exact doubling bug `derive.sh`'s own header documents, reintroduced in a table no guard covers. | Whoever created it: is it staying? If yes it needs a file in `sql/schema/` and a place in both guard lists. If no, drop it. | **unassigned, needs its author** |
+| **`concurrency_boundary_deltas` is not in either derive guard list** | Half closed. D14 declared it in `sql/schema/06_exact_concurrency.sql`, so it is no longer schema drift and is no longer allowlisted. What remains: `concurrency_boundary_deltas_mv` reads `foreground_intervals`, and the table is absent from `derive.sh:44` and `rebuild_swap.sh:33`, so `REBUILD=1 ./scripts/derive.sh` resets the five tables it knows about, re-inserts intervals, fires that MV again and appends a duplicate set to a table nothing reset. `net_delta` stays 0 throughout because every extra `+1` brings its own `-1`. `init_exact_layer.sh` guards its own backfill only. The `minutes_exact_exceeds_touch` invariant in `exact_layer_parity.sh` would catch it after the fact; nothing prevents it. | One line: add the table to both guard lists | **exact-layer owner** |
 | Read budgets after the rebuild | Re-measured: worst shape 30,662 rows against the committed 80,712 ceiling, 490,592 bytes against 1,291,392. Valid **today**, and see the countdown below, because this is a ceiling we are walking toward rather than a property we hold. One bench shape (`country`) returned `NA` because its `query_log` lookup did not resolve; the other seven are complete. | Re-run `./scripts/bench.sh` to fill that one cell | unassigned |
+| **Exact-resolution concurrency boundary deltas**, four invariants PASS, 725,157 intervals measured | `exact_layer_parity` | done |
+| **Title and category filter dimensions**, resolved via content_id set, not denormalized | `title_category_serving` | done |
+| Naive baseline gate retired to PASS artifact on success | `naive_baseline_gate` | done |
+| Frozen predicate on `data_quality.sql` enforced in all subqueries | `runbook_validation` | done |
+
+## In flight
+
+The exact layer and title/category filters are shipped with evidence, and the read budget countdown
+below is an ongoing constraint rather than a blocker. One item is genuinely open, and it is the
+`concurrency_boundary_deltas` row above, restated here because D14 closed half of it: the table is
+now declared in `sql/schema/06_exact_concurrency.sql`, which fixes the drift, and it is still absent
+from the two derive guard lists, which does not fix the doubling.
 
 ### The read budget is a countdown, not a pass
 
@@ -135,9 +153,12 @@ Each of these is a real gap. None is hidden behind a green checkmark.
 | ~~Seeding test re-run with differing upper bounds (TASK 3.3)~~ | Done, and it **falsified** the property it was written to confirm. See the row below. | **DONE** `[V:seeding_position]` | done |
 | `title` and `category` dimensions from the content dataset (TASK 3.5) | Two filterable dimensions the data supports and the serving layer does not carry. | Not done. Additive: a column on `content`, then on the delta key. | **unassigned** |
 | TTL policy on the detail and delta tables (TASK 3.5) | Unbounded growth. Not urgent at 30K delta rows; a real question at 100x. | **Documented and deliberately not switched on.** [`RETENTION.md`](RETENTION.md) gives per-table retention and the clause shape. It stays off until judging, replay and the unseen day's date range are settled, because a rule expressed in days from now deletes the frozen corpus once now moves far enough. The delta tables are excluded on purpose: the curve is a cumulative sum from the first minute, so truncating their head does not shorten the answer, it corrupts every later value. | done |
+| Lateness boundary (TASK 3.4) | Update handling is graded explicitly. An undefined boundary is an undefined answer to a graded question. | **Not done in this worktree.** The pipeline absorbs late events correctly via retract-and-reassert, proven in `[V:open_sessions]`, but no boundary is defined here. A lateness boundary and audit table exist on the parallel branch feature/phoenix-next-insights and arrive with its merge. | parallel branch |
+| `title` and `category` dimensions from the content dataset (TASK 3.5) | Two filterable dimensions the data supports and the serving layer now carries. | **Done.** `sql/queries/serving/title_category_peak_average.sql` filters the content set and reads deltas by `content_id IN`, avoiding denormalization and dictionary nondeterminism. Evidence shows the path reads 64,126 rows from exactly `phoenix.concurrency_deltas` and `phoenix.content`. | done |
+| TTL policy on the detail and delta tables (TASK 3.5) | Unbounded growth. Not urgent at 30K delta rows; a real question at 100x. | **Not done in this worktree.** No table carries a TTL and that is measured, not assumed (`runbook_validation` reports 0 TTL-carrying tables). A retention policy document exists on the parallel branch feature/phoenix-next-insights and arrives with its merge. | parallel branch |
 | Key order at realistic volume (TASK 4.1) | At 4 granules every candidate key prunes identically, so the experiment is uninformative rather than negative. The 36 percent disk difference IS informative and is reported as such. | Not done. Cheap unlock: synthesise 100x **delta** rows by fanning dimension tuples over the existing minute series. No re-derive, no ingest. | **unassigned** |
 | OTLP spans on 4317/4318 (TASK 2.1 layer 3) | Layer 3 of the integration. | **Deviated deliberately.** `system.query_log` already holds `read_rows`, `read_bytes` and `elapsed_ms` on the same service, and panel 5 reads them there, so emitting spans would duplicate data that is already queryable. Stated as a deviation, not a completion. | unassigned |
-| Frozen predicate on `sql/queries/validation/data_quality.sql` | The file instructs "run after every load, including the unseen day", but carries no `frozen_before`, so every count drifts with live ingest and is not comparable between runs. | **Not done.** Found during the carry-forward sweep. Roughly 18 subqueries need the bound. | **unassigned** |
+| Frozen predicate on `sql/queries/validation/data_quality.sql` | The file instructs "run after every load, including the unseen day", and now carries the frozen predicate in all subqueries. Every count is bounded by `frozen_before` and comparable between runs. | **Done.** Events total equals exactly 905,558 frozen corpus. | done |
 | Rendered appearance of the ClickStack tiles | The data path is proven through HyperDX's own proxy; the pixels are not. | HyperDX's UI sits behind a login form and no password was typed into it. Open `http://localhost:8090` with the credentials in [`clickstack.md`](clickstack.md) to confirm visually. | anyone with 2 minutes |
 
 ## Known limits, stated rather than discovered

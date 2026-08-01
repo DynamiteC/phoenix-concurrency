@@ -73,6 +73,12 @@ if [ "$(val "SELECT toDateTime('$CMIN') >= toDateTime('$CMAX')")" = "1" ]; then
   gate_fail "the two tables do not overlap at all, there is nothing to compare"
 fi
 
+# A PASSING gate is evidence too, for the same reason a failing one is: without this row the
+# ledger keeps whatever the gate last wrote, so a FAIL from a since-recalibrated gate reads
+# as an open failure forever. Replacing the claim_id in place is the ledger's own convention.
+printf 'metric\tvalue\ngate\tPASS\nnaive_sum_delta\t%s\nnaive_min_minute\t%s\nnaive_max_minute\t%s\ncorrected_min_minute\t%s\ncorrected_max_minute\t%s\nminutes_excluded_by_clip\t%s\n' \
+  "$BAL" "$NMIN" "$NMAX" "$FMIN" "$FMAX" "$EXCLUDED" \
+  | evidence naive_baseline_gate "range/balance gate before the naive-vs-corrected comparison" >/dev/null
 
 echo "== 4. measuring"
 # Both curves are densified to one row per minute across the shared range BEFORE any
