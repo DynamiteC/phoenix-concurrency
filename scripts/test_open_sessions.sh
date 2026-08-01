@@ -124,12 +124,22 @@ metric day1_provisional_tail_s "$(val "$TEST" "SELECT dateDiff('second', (SELECT
 echo "== 5b. open sessions must be counted as watching at the cutoff, not dropped"
 q "$TEST" --format PrettyCompact --query "
 SELECT
-    max(c) AS peak_while_open,
-    countIf(c > 0) AS minutes_with_audience
-FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c
-      FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))"
+    max(c)                       AS peak_while_open,
+    -- MINUTES with an audience, not ROWS. concurrency_deltas is sparse: a row is a change, and
+    -- its value holds until the next row. countIf(c > 0) over the raw rows counts boundaries and
+    -- undercounts badly (measured elsewhere in this repo: 1,413 rows against 3,664 minutes). The
+    -- gap-weighted form below is the one proven in scripts/ground_state.sh.
+    toInt64(sumIf(held, c > 0))  AS minutes_with_audience
+FROM (
+    SELECT c,
+           greatest(dateDiff('minute', minute, leadInFrame(minute) OVER
+               (ORDER BY minute ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)), 0) AS held
+    FROM (SELECT minute,
+                 sum(delta) OVER (ORDER BY minute ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c
+          FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))
+)"
 metric day1_peak_while_open "$(val "$TEST" "SELECT max(c) FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))")"
-metric day1_minutes_with_audience "$(val "$TEST" "SELECT countIf(c > 0) FROM (SELECT sum(delta) OVER (ORDER BY minute ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))")"
+metric day1_minutes_with_audience "$(val "$TEST" "SELECT sum(held) FROM (SELECT c, greatest(dateDiff('minute', minute, leadInFrame(minute) OVER (ORDER BY minute ASC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)), 0) AS held FROM (SELECT minute, sum(delta) OVER (ORDER BY minute ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS c FROM (SELECT minute, sum(delta) AS delta FROM concurrency_deltas GROUP BY minute))) WHERE c > 0")"
 
 # Baseline before the arrival. Step 4b re-derives over an unbounded window on purpose, so
 # the cumulative retraction count includes bystander rows that pass legitimately wrote. Only
