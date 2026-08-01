@@ -83,6 +83,23 @@ if [ "$dupes" != "1" ] || [ "$negs" != "0" ]; then
   dupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM session_minute_runs GROUP BY video_session_id, run_start, run_end HAVING s > 0)")"
   negs="$(val "SELECT countIf(s < 0) FROM (SELECT sum(sign) AS s FROM session_minute_runs GROUP BY video_session_id, run_start, run_end)")"
 fi
+
+# USER STAGE. The session stage above only writes session_minute_runs; user_minute_runs is a
+# separate rebuild (04) that this tick never ran, so the Users side of the console stayed at
+# whatever the last batch derive left and read zero for every live minute. 04c is the windowed,
+# self-healing twin of 04, scoped to users touched in this window: see that file for why the
+# scope is required and not just an optimisation. Runs only after the session invariants hold,
+# since it reads asserted session runs.
+if [ "$closure" = "0" ] && [ "$dupes" = "1" ] && [ "$negs" = "0" ]; then
+  CHT --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
+    --queries-file sql/pipeline/04c_merge_user_runs_atomic.sql
+  uclosure="$(val "SELECT sum(delta) FROM user_concurrency_deltas")"
+  udupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM user_minute_runs GROUP BY user_id, run_start, run_end HAVING s > 0)")"
+  if [ "$uclosure" != "0" ] || [ "$udupes" != "1" ]; then
+    echo "$(date -u +%FT%TZ) $DB USER STAGE FAILED: closure=$uclosure dupes=$udupes" >>"$LOG"
+    exit 1
+  fi
+fi
 t1=$(date +%s)
 
 if [ "$closure" != "0" ] || [ "$dupes" != "1" ] || [ "$negs" != "0" ]; then

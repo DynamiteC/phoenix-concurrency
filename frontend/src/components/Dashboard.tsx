@@ -2,12 +2,14 @@
 
 import {useEffect, useRef, useState} from 'react'
 import type {ConcurrencyResponse, DimensionValue, ClientFilters, Mode, StatusResponse} from '@/lib/types'
+import {istDateTime, istInputToUtc, utcToIstInput} from '@/lib/time'
 import ConsoleHeader from './ConsoleHeader'
 import FilterRail, {type RangeOption, type RefreshOption} from './FilterRail'
 import ModeSwitch from './ModeSwitch'
 import StatReadout from './StatReadout'
 import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
+import OpenSessions from './OpenSessions'
 import styles from './Dashboard.module.css'
 
 const EMPTY_FILTERS: ClientFilters = {
@@ -32,22 +34,18 @@ function toChTimestamp(d: Date): string {
   return d.toISOString().slice(0, 19).replace('T', ' ')
 }
 
-/** datetime-local input value ("YYYY-MM-DDTHH:mm") <-> ClickHouse "YYYY-MM-DD HH:mm:ss". Both
- *  UTC: the picker is explicitly labelled UTC rather than run through the browser's local zone,
- *  matching every other timestamp this console shows. */
-function toInputValue(chTimestamp: string): string {
-  return chTimestamp.slice(0, 16).replace(' ', 'T')
-}
+/** datetime-local input value ("YYYY-MM-DDTHH:mm") <-> ClickHouse "YYYY-MM-DD HH:mm:ss". The
+ *  picker reads and writes IST because every other timestamp on screen is IST; the conversion
+ *  back to UTC happens here, so the window sent to the API is still UTC. Both live in lib/time.ts
+ *  with the display formatters, since they have to agree on the zone or the pickers disagree with
+ *  the axis. */
+const toInputValue = utcToIstInput
+const fromInputValue = istInputToUtc
 
-function fromInputValue(v: string): string {
-  return `${v.replace('T', ' ')}:00`
-}
-
-/** The window is relative to the FROZEN corpus's own clock, not the wall clock or the live
- *  watermark: every serving query is isolated to frozen_before, so the window the UI requests
- *  must be bounded by what that isolation actually covers. Custom is the one exception that
- *  takes an explicit user-picked from/to rather than deriving one, still clamped to that same
- *  frozen clock (see the input `min`/`max` FilterRail sets from these same bounds). */
+/** The window is relative to the INGEST clock, not the wall clock: `frozenLatest` is now the
+ *  latest ingested event (the frozen horizon defaults to a no-op, see lib/env.ts), so "last 3h"
+ *  means the 3h ending wherever ingest has reached and it advances on every status tick. Custom
+ *  is the one exception, taking an explicit user-picked from/to rather than deriving one. */
 function windowFor(
   range: RangeOption,
   status: StatusResponse | null,
@@ -108,7 +106,7 @@ export default function Dashboard() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
-  const [mode, setMode] = useState<Mode | 'compare'>('sessions')
+  const [mode, setMode] = useState<Mode | 'compare' | 'open'>('sessions')
 
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [sessionData, setSessionData] = useState<ConcurrencyResponse | null>(null)
@@ -118,7 +116,7 @@ export default function Dashboard() {
 
   const timerRef = useRef<ReturnType<typeof setInterval>>()
 
-  // Filter dropdown values, fetched once — the dimension set does not change while the
+  // Filter dropdown values, fetched once: the dimension set does not change while the
   // dashboard is open.
   useEffect(() => {
     fetch('/api/dimensions')
@@ -142,6 +140,8 @@ export default function Dashboard() {
         const {from, to} = windowFor(range, s, customFrom, customTo)
         const withWindow: ClientFilters = {...filters, from_ts: from, to_ts: to}
 
+        // 'open' fetches nothing here. That panel reads raw_events on demand and must not be
+        // dragged onto this 5-second loop, and the curves it does not show cost nothing to skip.
         const wantSessions = mode === 'sessions' || mode === 'compare'
         const wantUsers = mode === 'users' || mode === 'compare'
 
@@ -230,7 +230,9 @@ export default function Dashboard() {
             {error && <span className={styles.errorTag}>{error}</span>}
           </div>
 
-          {mode !== 'compare' && primary && (
+          {mode === 'open' && <OpenSessions asOf={status?.latestEvent ?? null}/>}
+
+          {mode !== 'compare' && mode !== 'open' && primary && (
             <div className={styles.stats}>
               <div className={styles.statsHero}>
                 <StatReadout
@@ -259,7 +261,7 @@ export default function Dashboard() {
                   value={primary.avgActiveMinutes.toFixed(2)}
                 />
                 <StatReadout label="p95" value={nf.format(Math.round(primary.p95Concurrency))}/>
-                <StatReadout label="peak minute" value={primary.peakMinute.slice(0, 16) || '—'}/>
+                <StatReadout label="peak minute, IST" value={istDateTime(primary.peakMinute)}/>
                 <StatReadout
                   label={mode === 'users' ? 'users reached in window' : 'sessions reached in window'}
                   value={nf.format(primary.reach)}
@@ -270,7 +272,7 @@ export default function Dashboard() {
                 <StatReadout
                   variant="inline"
                   label="rows read"
-                  value={primary.rowsRead != null ? nf.format(primary.rowsRead) : '—'}
+                  value={primary.rowsRead != null ? nf.format(primary.rowsRead) : 'n/a'}
                 />
               </div>
             </div>
@@ -313,8 +315,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          <ConcurrencyChart series={series}/>
+          {mode !== 'open' && <ConcurrencyChart series={series}/>}
 
+          {mode !== 'open' && (
           <footer className={styles.footnote}>
             Curve is read from{' '}
             {mode === 'users' ? <code>user_concurrency_deltas</code> : <code>concurrency_deltas</code>}, a
@@ -322,6 +325,7 @@ export default function Dashboard() {
             evaluated after every filter is applied, because a platform slice and a platform+country
             slice peak at different minutes.
           </footer>
+          )}
         </main>
       </div>
     </div>

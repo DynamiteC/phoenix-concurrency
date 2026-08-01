@@ -14,7 +14,11 @@ export async function GET(): Promise<NextResponse<DimensionsResponse | ApiError>
     const result = await chQuery(servingSql('dimension_values.sql'), {frozen_before: FROZEN_BEFORE})
     const col = columnReader(result.meta)
     const values = result.data
-      .map((row) => ({dim: String(col(row, 'dim')), value: String(col(row, 'value'))}))
+      .map((row) => ({
+        dim: String(col(row, 'dim')),
+        value: String(col(row, 'value')),
+        label: String(col(row, 'label')),
+      }))
       .filter((v) => v.value !== '') as DimensionsResponse['values']
     return NextResponse.json({values})
   } catch (e) {

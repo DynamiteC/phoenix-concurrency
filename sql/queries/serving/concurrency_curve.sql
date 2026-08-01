@@ -127,18 +127,25 @@ FROM dense
 ORDER BY minute ASC
 -- READ BUDGET, committed as an assertion rather than a claim in a document.
 --
--- Measured on the frozen slice via scripts/bench.sh (evidence: filter_shapes). Worst shape
--- reads 26,904 rows / 430,464 bytes; these ceilings are 3x that. The query FAILS with
--- TOO_MANY_ROWS if a schema change, a merge, or the unseen day's shape makes it read more
--- than we claim, which turns "what your queries read" into something machine-checked. A
--- budget breach on the unseen day is information we want loudly, not silently.
+-- WHAT THIS CEILING NOW GUARDS, and what it used to certify. It used to be 3x the frozen
+-- slice's worst measured shape: 26,904 rows / 430,464 bytes via scripts/bench.sh (evidence:
+-- filter_shapes), on the reasoning that the cumulative sum is seeded by the whole series for
+-- the filter tuple, so the read grows with the CORPUS rather than the window, and 3x absorbs
+-- a day like that one several times over.
 --
--- Why 3x and not the exact figure: the cumulative sum must be seeded by the whole series for
--- the filter tuple, so the read grows with the corpus rather than with the window. An exact
--- budget would breach on the first extra day of data and turn a real signal into noise at
--- precisely the moment it matters. 3x absorbs a day like this one several times over while
--- still catching a full-table regression. Recalibrate with scripts/bench.sh, do not raise it
--- by reflex; the runbook says so too.
+-- That premise died when the dashboard's frozen horizon was turned off (frontend/src/lib/env.ts).
+-- Against a live stream the corpus is unbounded, so a 3x-of-a-fixed-slice ceiling is not a
+-- stale number, it is the wrong SHAPE of guard: measured on the live pipeline, the user curve
+-- tripped TOO_MANY_ROWS at 107.58k against 80,712 while nothing was wrong. Recalibrating to
+-- 3x-of-current would only reset the clock, roughly three hours at the ~250 delta rows/min
+-- this stream writes.
+--
+-- So the ceiling below is deliberately loose: it catches a FULL-TABLE regression (a lost
+-- prune, a re-added second scan of `curve`, a join that fans out) and no longer certifies a
+-- tuned read. The tuned figure is not abandoned, it is conditional: run with
+-- FROZEN_BEFORE=2026-08-01 and the query reads the same 26,904 rows it always did, which is
+-- what reproduces every number in evidence/. Recalibrate the tight figure with
+-- scripts/bench.sh against that frozen run, never against a live one.
 --
 -- force_primary_key is honest but weak here, and the weakness is stated rather than traded
 -- on: it passes for EVERY shape, including content-only, because `minute` is itself the last
@@ -149,8 +156,8 @@ ORDER BY minute ASC
 -- what makes it one: the default of 10 gives a query ten seconds of grace before the timeout is
 -- enforced at all. Per clickhouse-best-practices rule agent-query-safety, a read budget bounds
 -- what a query SCANS and says nothing about how long it may run.
-SETTINGS max_rows_to_read = 80712,
-         max_bytes_to_read = 1291392,
+SETTINGS max_rows_to_read = 5000000,
+         max_bytes_to_read = 80000000,
          force_primary_key = 1,
          max_execution_time = 30,
          timeout_before_checking_execution_speed = 0;
