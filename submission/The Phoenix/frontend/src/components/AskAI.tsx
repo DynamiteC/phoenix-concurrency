@@ -39,7 +39,7 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props 
   // never sent anywhere but the Authorization header this app builds server-side. It is gone the
   // moment the tab closes, which is exactly what the disclaimer below promises.
   const [apiKey, setApiKey] = useState('')
-  const [provider, setProvider] = useState<LlmProvider>('anthropic')
+  const [provider, setProvider] = useState<LlmProvider>('google')
   const [keyOpen, setKeyOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 

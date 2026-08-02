@@ -16,7 +16,7 @@ metric	value
 hyperdx_version	2.33.0
 image	clickhouse/clickstack-all-in-one:latest
 container_health	healthy
-hyperdx_app_connection_host	http://localhost:8123,https://y4dkjw9m37.ap-south-1.aws.clickhouse.cloud:8443
+hyperdx_app_connection_host	http://localhost:8123,https://<service>.ap-south-1.aws.clickhouse.cloud:8443
 registered_source	phoenix.concurrency_deltas (timestamp expr: minute)
 dashboard_tiles	5
 otel_tables_created_in_our_service	11

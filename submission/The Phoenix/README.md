@@ -54,6 +54,12 @@ while a judge is reading them.
 
 TODO: demo video URL.
 
+## Pitch Deck
+
+[`pitch-deck.pdf`](pitch-deck.pdf), eleven slides. [`pitch-deck.html`](pitch-deck.html) is the
+source it renders from, so a number that moves can be corrected and the PDF regenerated with
+`google-chrome --headless --no-pdf-header-footer --print-to-pdf=pitch-deck.pdf pitch-deck.html`.
+
 ## Architecture
 
 ### High-level design

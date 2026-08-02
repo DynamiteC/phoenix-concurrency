@@ -13,6 +13,18 @@ export interface LlmPreset {
   keyUrl: string
   /** The LibreChat endpoint this maps to; it must carry `userProvidedKey: true`. */
   endpoint: string
+  /**
+   * The model to request when the caller brings their own key.
+   *
+   * REQUIRED, not optional. The agent id alone is enough only on the server credential path,
+   * where the stored agent already names a model. A user-provided key reaches the provider with
+   * whatever `model` the request carries, and an agent id is not a model name at Anthropic,
+   * Google or OpenAI, so the call fails before it reaches the tool.
+   *
+   * Deliberately the ENTRY-TIER model of each provider: the visitor is spending their own credit
+   * on a question about a concurrency table, and the expensive tiers buy nothing here.
+   */
+  model: string
 }
 
 export const LLM_PRESETS: Record<LlmProvider, LlmPreset> = {
@@ -21,17 +33,20 @@ export const LLM_PRESETS: Record<LlmProvider, LlmPreset> = {
     label: 'Claude',
     keyUrl: 'https://console.anthropic.com/settings/keys',
     endpoint: 'anthropic',
+    model: 'claude-haiku-4-5-20251001',
   },
   google: {
     id: 'google',
     label: 'Gemini',
     keyUrl: 'https://aistudio.google.com/apikey',
     endpoint: 'google',
+    model: 'gemini-2.5-flash',
   },
   openai: {
     id: 'openai',
     label: 'Codex (OpenAI)',
     keyUrl: 'https://platform.openai.com/api-keys',
     endpoint: 'openAI',
+    model: 'gpt-4o-mini',
   },
 }

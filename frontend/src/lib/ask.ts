@@ -388,12 +388,16 @@ export async function askAgent(
       // the Project Assistant agent's own stored `instructions` (Mongo `agents` collection) into
       // the conversation's leading system turn before this reaches the model. Adding a second
       // system message makes two, and Google's Gemini backend rejects any system message that
-      // isn't at index 0 ("System message should be the first one" — @langchain/google-genai).
+      // isn't at index 0 ("System message should be the first one", @langchain/google-genai).
       // So the scope pin travels as a preamble on the latest turn instead, which validateThread
       // guarantees is role: 'user', and is re-attached on every call since the whole thread is
       // resent stateless each time.
       body: JSON.stringify({
-        model: LIBRECHAT_AGENT_ID,
+        // The agent id is the right `model` ONLY on the server-credential path, where LibreChat
+        // resolves it to a stored agent that already names a model. A caller's own key is billed
+        // straight against their provider, which is handed this field verbatim and rejects an
+        // agent id, so a bring-your-own-key request has to name a real model itself.
+        model: cred.provider ? cred.provider.model : LIBRECHAT_AGENT_ID,
         messages: messages.map((m, i) =>
           i === messages.length - 1 ? {...m, content: `${systemPrompt(scope)}\n\n---\n\n${m.content}`} : m,
         ),
