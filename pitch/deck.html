@@ -1,0 +1,450 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>The Phoenix, pitch deck</title>
+<style>
+  /* Slides are print-first: one 16:9 page each, rendered by headless Chrome to PDF.
+     Screen preview stacks the same boxes so the deck can be checked without rendering. */
+  @page { size: 330mm 185.6mm; margin: 0; }
+
+  :root {
+    --ink:      #0d0f14;
+    --paper:    #f4f1ea;
+    --rule:     #c9c2b4;
+    --muted:    #5d6472;
+    --accent:   #b5341f;   /* one colour, used only for the measured number */
+    --accent-2: #1f5d4c;   /* and one for the verdict */
+    --backdrop:    #2a2a2a;  /* screen preview surround, never printed */
+    --ink-soft:    #21252e;
+    --track:       #e3ded3;
+    --paper-dim:   #b9c0cc;
+    --dark-muted:  #7c8698;
+    --dark-lede:   #ccd3de;
+    --dark-rule:   #3a4150;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: "Inter", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--backdrop); }
+
+  .slide {
+    position: relative;
+    width: 330mm; height: 185.6mm;
+    padding: 16mm 18mm 13mm;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+  .slide:last-child { page-break-after: auto; break-after: auto; }
+  @media screen { .slide { margin: 0 auto 10mm; box-shadow: 0 2mm 8mm rgba(0,0,0,.45); } }
+
+  /* Slide furniture */
+  .eyebrow {
+    font-family: var(--mono); font-size: 3.1mm; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .num {
+    position: absolute; right: 18mm; bottom: 9mm;
+    font-family: var(--mono); font-size: 3.1mm; color: var(--muted);
+  }
+  .foot {
+    position: absolute; left: 18mm; bottom: 9mm;
+    font-family: var(--mono); font-size: 3.1mm; color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 15mm; line-height: 1.04; letter-spacing: -.015em;
+    margin: 3mm 0 0;
+  }
+  h2 {
+    font-family: var(--serif); font-weight: 400;
+    font-size: 10.5mm; line-height: 1.08; letter-spacing: -.012em;
+    margin: 2mm 0 6mm; max-width: 84%;
+  }
+  p { font-size: 4.4mm; line-height: 1.5; margin: 0 0 3mm; max-width: 78%; }
+  .lede { font-size: 5.4mm; line-height: 1.42; color: var(--ink-soft); }
+  strong { font-weight: 650; }
+  code { font-family: var(--mono); font-size: .92em; }
+
+  /* The one editorial device: a hairline that separates header from body. */
+  .rule { border: 0; border-top: .35mm solid var(--ink); margin: 5mm 0 6mm; }
+
+  /* Big-number blocks */
+  .figs { display: flex; gap: 14mm; margin: 4mm 0 0; }
+  .fig { flex: 1; }
+  .fig .v {
+    font-family: var(--serif); font-size: 21mm; line-height: .95;
+    letter-spacing: -.02em; color: var(--accent);
+  }
+  .fig .v.plain { color: var(--ink); }
+  .fig .k {
+    font-family: var(--mono); font-size: 3.2mm; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted);
+    margin-top: 3mm; line-height: 1.45;
+  }
+
+  /* Comparison bars, drawn in CSS so nothing loads from a network. */
+  .bars { margin: 6mm 0 0; max-width: 74%; }
+  .bar { margin-bottom: 5mm; }
+  .bar .lab {
+    font-family: var(--mono); font-size: 3.3mm; color: var(--muted);
+    display: flex; justify-content: space-between; margin-bottom: 1.6mm;
+  }
+  .bar .track { height: 7mm; background: var(--track); position: relative; }
+  .bar .fill { height: 100%; background: var(--ink); position: relative; }
+  .bar .fill.bad { background: var(--accent); }
+  .bar .val {
+    position: absolute; right: 2.5mm; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 3.6mm; color: var(--paper); font-weight: 600;
+  }
+
+  /* Evidence table */
+  table { width: 100%; border-collapse: collapse; font-size: 3.9mm; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 3mm;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
+    font-weight: 400; padding: 0 0 2.5mm; border-bottom: .3mm solid var(--ink);
+  }
+  td { padding: 2.6mm 0; border-bottom: .2mm solid var(--rule); vertical-align: baseline; }
+  td.n {
+    font-family: var(--mono); font-weight: 600; white-space: nowrap;
+    padding-right: 6mm; color: var(--accent);
+  }
+  td.n.calm { color: var(--ink); }
+  td.src { font-family: var(--mono); font-size: 3.2mm; color: var(--muted); text-align: right; }
+  tr.pass td.n { color: var(--accent-2); }
+
+  /* Pipeline diagram */
+  .flow { display: flex; align-items: stretch; gap: 0; margin: 7mm 0 0; }
+  .node {
+    flex: 1; border: .3mm solid var(--ink); padding: 5mm 4mm;
+    display: flex; flex-direction: column; justify-content: flex-start;
+  }
+  .node.key { background: var(--ink); color: var(--paper); }
+  .node .t { font-family: var(--mono); font-size: 3.4mm; letter-spacing: .06em; margin-bottom: 2.5mm; }
+  .node .d { font-size: 3.5mm; line-height: 1.45; color: var(--muted); }
+  .node.key .d { color: var(--paper-dim); }
+  .arrow {
+    width: 9mm; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 4.5mm; color: var(--muted);
+  }
+
+  /* Two-column body */
+  .cols { display: flex; gap: 12mm; margin-top: 1mm; }
+  .cols > div { flex: 1; }
+  .cols p { max-width: none; }
+  ul { margin: 0; padding-left: 5mm; }
+  li { font-size: 4.1mm; line-height: 1.5; margin-bottom: 2.6mm; }
+  li::marker { color: var(--muted); }
+
+  .kicker {
+    font-family: var(--serif); font-size: 6.4mm; line-height: 1.34;
+    max-width: 80%; margin-top: auto; padding-top: 6mm; margin-bottom: 6mm;
+    border-top: .3mm solid var(--rule); color: var(--ink-soft);
+  }
+
+  /* Title slide inverts, so the deck opens with a change of key. */
+  .slide.dark { background: var(--ink); color: var(--paper); }
+  .slide.dark .eyebrow, .slide.dark .num, .slide.dark .foot { color: var(--dark-muted); }
+  .slide.dark h1 { font-size: 24mm; }
+  .slide.dark .lede { color: var(--dark-lede); }
+  .slide.dark .rule { border-top-color: var(--dark-rule); }
+  .slide.dark .fig .v.plain { color: var(--paper); }
+  .slide.dark .fig .k { color: var(--dark-muted); }
+</style>
+
+<!-- 1 -->
+<section class="slide dark">
+  <div class="eyebrow">SonyLIV Click-a-thon &middot; ClickHouse</div>
+  <h1>The Phoenix</h1>
+  <hr class="rule">
+  <p class="lede">
+    Concurrent viewers, counted correctly. Peak and average at minute, hour and day grain,
+    across nine filter dimensions, from a delta table that never rescans raw history.
+  </p>
+  <div class="figs" style="margin-top:auto">
+    <div class="fig">
+      <div class="v plain">905,558</div>
+      <div class="k">graded corpus events</div>
+    </div>
+    <div class="fig">
+      <div class="v plain">7,000,000</div>
+      <div class="k">unseen day, same queries</div>
+    </div>
+    <div class="fig">
+      <div class="v plain">0</div>
+      <div class="k">diffs against brute-force oracle</div>
+    </div>
+  </div>
+  <div class="foot">the-phoenix.cricheroes.io</div>
+  <div class="num">01</div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="eyebrow">The problem</div>
+  <h2>Interval overlap is not concurrency</h2>
+  <hr class="rule">
+  <p class="lede">
+    A session can be open while the app is backgrounded, the player is paused, or the heartbeat
+    has simply stopped arriving. Counting that time as watching overstates the audience, and
+    every decision made on the dashboard inherits the error.
+  </p>
+  <div class="bars">
+    <div class="bar">
+      <div class="lab"><span>Naive session-span counting</span><span>peak concurrent</span></div>
+      <div class="track"><div class="fill bad" style="width:100%"><span class="val">9,942</span></div></div>
+    </div>
+    <div class="bar">
+      <div class="lab"><span>Foreground-only, active interval</span><span>peak concurrent</span></div>
+      <div class="track"><div class="fill" style="width:76.2%"><span class="val">7,576</span></div></div>
+    </div>
+  </div>
+  <div class="kicker">
+    A <strong>31 percent</strong> overstatement, and 1,592 minutes where the naive method invents
+    an audience that was never there. That gap is the entire problem, removed and measured.
+  </div>
+  <div class="foot">./scripts/naive_baseline.sh</div>
+  <div class="num">02</div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="eyebrow">The model</div>
+  <h2>Model the active interval, not the session</h2>
+  <hr class="rule">
+  <div class="cols">
+    <div>
+      <p>
+        Every event moves a session between three states: foreground, background, and gone. State
+        holds for a 90 second tolerance and no longer, so a session that stops emitting stops
+        counting whether or not it ever formally ended.
+      </p>
+      <p>
+        Those active intervals normalise to per-session minute runs, then to <code>+1/-1</code>
+        boundary deltas. Concurrency at any minute is a running sum, so the serving layer reads
+        boundaries rather than history.
+      </p>
+    </div>
+    <div>
+      <ul>
+        <li><strong>Peak is computed, never stored.</strong> A platform slice and a platform-plus-country slice peak at different minutes inside the same range, so a pre-rolled peak per dimension is wrong by construction.</li>
+        <li><strong>Both averages are reported.</strong> 88.06 over all 1,440 minutes, 200.00 over the 634 minutes with an audience. Averaging sparse rows instead returns 246.5 against a true 88.2.</li>
+        <li><strong>Open sessions retract.</strong> A session still open when the question is asked is counted, then corrected as its real ending arrives.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot">sql/schema/03_event_state.sql</div>
+  <div class="num">03</div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="eyebrow">Architecture</div>
+  <h2>Raw history is read once, on the way in</h2>
+  <hr class="rule">
+  <div class="flow">
+    <div class="node">
+      <div class="t">CSV</div>
+      <div class="d">905,558 events, landing table with ENGINE = Null so nothing is stored twice.</div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="node">
+      <div class="t">event_state</div>
+      <div class="d">Three-bucket state machine, 90 second gap tolerance, foreground only.</div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="node key">
+      <div class="t">concurrency_deltas</div>
+      <div class="d">SummingMergeTree of +1/-1 boundaries keyed by minute and nine dimensions. 439 KiB for the unseen day.</div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="node">
+      <div class="t">serving</div>
+      <div class="d">Seeded cumulative sum. Peak, both averages, p95, at any grain.</div>
+    </div>
+    <div class="arrow">&rarr;</div>
+    <div class="node">
+      <div class="t">console</div>
+      <div class="d">Prints the query, the table it read, and the rows read, next to every answer.</div>
+    </div>
+  </div>
+  <div class="kicker">
+    Nothing in the serving path touches <code>raw_events</code>. The gate that proves it reads
+    ClickHouse's own <code>query_log</code> and fails the build if a served query ever does.
+  </div>
+  <div class="foot">./scripts/check_query_sources.sh</div>
+  <div class="num">04</div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="eyebrow">Results &middot; correctness</div>
+  <h2>The numbers are not asserted</h2>
+  <hr class="rule">
+  <table>
+    <tr><th>Claim</th><th>Number</th><th style="text-align:right">Reproduce</th></tr>
+    <tr class="pass"><td>Serving layer versus brute-force oracle</td><td class="n">3,663 minutes, 0 diffs</td><td class="src">parity.sh</td></tr>
+    <tr class="pass"><td>Open sessions absorbed incrementally</td><td class="n">5,316 minutes, 0 diffs</td><td class="src">test_open_sessions.sh</td></tr>
+    <tr class="pass"><td>Full rebuild run twice, derived tables diffed</td><td class="n">0 diff lines, 5 of 5 tables</td><td class="src">prove_idempotence.sh</td></tr>
+    <tr class="pass"><td>Frozen slice stable under concurrent writes</td><td class="n">34 metrics, 0 differing lines</td><td class="src">frozen_gate.sh</td></tr>
+    <tr><td>Peak concurrent sessions, graded corpus</td><td class="n calm">2,828 at 10:56</td><td class="src">ground_state.sh</td></tr>
+    <tr><td>Average over all 1,440 minutes</td><td class="n calm">88.06</td><td class="src">bench.sh</td></tr>
+    <tr><td>Average over the 634 minutes with an audience</td><td class="n calm">200.00</td><td class="src">bench.sh</td></tr>
+  </table>
+  <div class="kicker">
+    Every figure resolves through <code>evidence/LEDGER.tsv</code> to the command that produced it
+    and the stamped artifact it wrote. <code>check_docs.sh</code> fails the build when a claim and
+    its evidence disagree.
+  </div>
+  <div class="num">05</div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="eyebrow">Results &middot; speed</div>
+  <h2>Fast because it reads less, not because it is bigger</h2>
+  <hr class="rule">
+  <div class="figs">
+    <div class="fig">
+      <div class="v">12 ms</div>
+      <div class="k">worst-shape query,<br>30,662 rows against a budget of 80,712</div>
+    </div>
+    <div class="fig">
+      <div class="v">2 of 4</div>
+      <div class="k">granules touched by a<br>platform filter, 16,384 rows</div>
+    </div>
+    <div class="fig">
+      <div class="v">70 s</div>
+      <div class="k">CSV to verified serving layer,<br>full rebuild from cold</div>
+    </div>
+  </div>
+  <div class="kicker">
+    The sorting key is ordered by pruning power, so the dimensions a judge actually filters on come
+    first. The honest caveat, stated in the README rather than hidden: a ninth-position dimension
+    such as <code>video_resolution</code> does not prune, and reads 354,185 rows against 354,305
+    unfiltered.
+  </div>
+  <div class="foot">./scripts/bench.sh</div>
+  <div class="num">06</div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="eyebrow">The unseen day</div>
+  <h2>Released after the pipeline was built. Same queries, untouched.</h2>
+  <hr class="rule">
+  <div class="figs">
+    <div class="fig">
+      <div class="v">7,000,000</div>
+      <div class="k">events for 2026-07-31,<br>7.7x the graded corpus</div>
+    </div>
+    <div class="fig">
+      <div class="v">41 s</div>
+      <div class="k">to derive, all<br>invariants PASS</div>
+    </div>
+    <div class="fig">
+      <div class="v">22,416</div>
+      <div class="k">peak concurrent sessions<br>at 11:16</div>
+    </div>
+    <div class="fig">
+      <div class="v">914.65</div>
+      <div class="k">daily average over<br>1,440 minutes</div>
+    </div>
+  </div>
+  <div class="kicker">
+    Both datasets sit behind a switch in the console, so the generalisation can be seen rather than
+    claimed: the original corpus every number was measured against, and the unseen day, side by
+    side, without a restart.
+  </div>
+  <div class="foot">./scripts/derive.sh phoenix_unseen</div>
+  <div class="num">07</div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="eyebrow">Update-friendly</div>
+  <h2>Nine dimensions cost 98 KiB and change no answer</h2>
+  <hr class="rule">
+  <p class="lede">
+    The same 7,000,000 row day, derived twice: five dimensions against nine. The widened key was
+    accepted only because the comparison came back identical, line for line.
+  </p>
+  <table style="max-width:88%">
+    <tr><th>Metric</th><th>Five dimensions</th><th>Nine dimensions</th></tr>
+    <tr class="pass"><td>Peak concurrent</td><td class="n">22,416 at 11:16</td><td class="n">22,416 at 11:16</td></tr>
+    <tr class="pass"><td>Average, all minutes</td><td class="n">914.65</td><td class="n">914.65</td></tr>
+    <tr class="pass"><td>Average, active minutes</td><td class="n">1,667.21</td><td class="n">1,667.21</td></tr>
+    <tr class="pass"><td>Asserted runs</td><td class="n">118,498</td><td class="n">118,498</td></tr>
+    <tr><td>Derive time</td><td class="n calm">41 s</td><td class="n calm">41 s</td></tr>
+    <tr><td>Delta table on disk</td><td class="n calm">341 KiB</td><td class="n calm">439 KiB</td></tr>
+  </table>
+  <div class="kicker">
+    Key cardinality rises 1.6x, realised rows only 11 percent, because SummingMergeTree collapses
+    what the wider key splits.
+  </div>
+  <div class="foot">evidence/widen_dimensions_parity</div>
+  <div class="num">08</div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="eyebrow">How it was built</div>
+  <h2>An evidence ledger, not a claims list</h2>
+  <hr class="rule">
+  <div class="cols">
+    <div>
+      <ul>
+        <li><strong>Every script writes a stamped TSV.</strong> Run timestamp, git SHA, host, row count, watermark. A claim with no artifact behind it fails <code>check_docs.sh</code>.</li>
+        <li><strong>Gates read ClickHouse's own query_log</strong> to prove which tables a served query touched, rather than trusting the SQL to say so.</li>
+        <li><strong>Corrections are kept, not erased.</strong> A positional INSERT silently shifted a column while all three derive invariants passed. That is written down, with the fix: explicit column lists everywhere.</li>
+      </ul>
+    </div>
+    <div>
+      <ul>
+        <li><strong>Two consoles on one port.</strong> The graded concurrency console, and a live insight console where the curve builds in near real time from a running producer.</li>
+        <li><strong>A live agent, not a canned demo.</strong> The Ask tab is backed by a LibreChat agent with a real ClickHouse MCP tool, so an open-ended question is answered by querying, not by a script.</li>
+        <li><strong>Deployed behind one published port.</strong> A check fails the deploy if anything else is exposed.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot">evidence/LEDGER.tsv &middot; docs/DECISIONS.md</div>
+  <div class="num">09</div>
+</section>
+
+<!-- 10 -->
+<section class="slide dark">
+  <div class="eyebrow">Live now</div>
+  <h1 style="font-size:15mm">See it answer</h1>
+  <hr class="rule">
+  <p class="lede">
+    <strong>the-phoenix.cricheroes.io</strong> serves the graded console at <code>/</code> and the
+    live insight console at <code>/v2</code>. Both print the query, the table, and the rows read
+    beside every answer, so nothing on screen has to be taken on trust.
+  </p>
+  <div class="figs" style="margin-top:auto">
+    <div class="fig">
+      <div class="v plain">31%</div>
+      <div class="k">overstatement removed<br>and measured</div>
+    </div>
+    <div class="fig">
+      <div class="v plain">0</div>
+      <div class="k">diffs against the oracle,<br>batch and incremental</div>
+    </div>
+    <div class="fig">
+      <div class="v plain">12 ms</div>
+      <div class="k">worst-shape query,<br>nine filter dimensions</div>
+    </div>
+    <div class="fig">
+      <div class="v plain">41 s</div>
+      <div class="k">to absorb an unseen<br>seven million event day</div>
+    </div>
+  </div>
+  <div class="foot">The Phoenix &middot; SonyLIV Click-a-thon</div>
+  <div class="num">10</div>
+</section>

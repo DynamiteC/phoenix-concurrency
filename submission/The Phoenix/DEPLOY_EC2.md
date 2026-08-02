@@ -41,6 +41,16 @@ git clone <your-fork-url> phoenix && cd phoenix/submission/The\ Phoenix
 
 ## 3. Credentials
 
+**`.env` is not in the archive.** It is gitignored, so neither the repo nor the submission zip
+carries it, by design. It must be created on the host, and it is the one file a redeploy loses.
+If a previous stack is still running, recover it from the container rather than retyping secrets:
+
+```bash
+docker exec phoenix-web-1 printenv | grep -E '^(CH_|LIVE_DB|LIBRECHAT_)' > .env
+```
+
+Otherwise:
+
 ```bash
 cp .env.example .env
 nano .env
@@ -56,12 +66,29 @@ CH_HTTP_PORT=8443            # HTTPS, used by the app. NOT the same port, and th
 CH_USER=default
 CH_PASSWORD=<secret>
 
-CH_DATABASE=phoenix_live         # v1's "Original corpus" position, and v2
-CH_INSIGHT_DATABASE=phoenix_live # the ten insight tables
+CH_DATABASE=phoenix_graded        # v1's "Original corpus". FROZEN, and NEVER equal to LIVE_DB
+CH_INSIGHT_DATABASE=phoenix_live  # the ten insight tables, v2
 CH_UNSEEN_DATABASE=phoenix_unseen # v1's "Unseen day" position
-LIVE_DB=phoenix_live             # what the producer writes into
+LIVE_DB=phoenix_live              # what the producer and ticker write into
 DERIVE_PERIOD=60
 ```
+
+**`CH_DATABASE` and `LIVE_DB` must name different databases.** The serving queries no longer
+carry a frozen-timestamp predicate: isolation is the database name now
+(`frontend/src/lib/env.ts`). Point both at one database and the producer's generated events land
+inside v1's graded answers, silently, with nothing in the UI to indicate it. Observed once in a
+live deploy: 2,864,457 generated rows sitting alongside the 905,558 delivered ones.
+
+Build the frozen copy once, from whichever database the producer writes to:
+
+```bash
+FROZEN_BEFORE=2026-08-01 CUT_BEFORE='2026-07-31 23:59:59.999' \
+  SRC_DB=phoenix_live DST_DB=phoenix_graded ./scripts/replicate.sh
+```
+
+It copies raw events at the cut and re-derives through the unmodified pipeline, so the result is
+an independent derivation rather than a clone. Accept it when `./scripts/ground_state.sh` reports
+peak **2,828** at **2026-07-26 10:56**.
 
 Leave `LIBRECHAT_API_KEY` blank. `ALLOW_SERVER_LLM_KEY` defaults to off, which means visitors
 bring their own model key and questions bill to their account, not yours. Setting it to `true`
@@ -131,11 +158,24 @@ docker compose up -d --build
 First build is 3 to 5 minutes. Four containers start: `proxy` (nginx on 80), `web` (both consoles),
 `producer` (continuous event generation into `phoenix_live`), `ticker` (the derive loop).
 
-For the Ask tab, add LibreChat:
+For the Ask tab, add LibreChat. Its bind mounts must exist and be owned by the uids the images
+run as, FIRST: Docker creates missing bind sources as root, and mongod (999) then dies with
+`Permission denied ... /data/db/journal` and exit 100, meilisearch with exit 1. A fresh checkout
+has neither directory, so this bites every first deploy.
 
 ```bash
+mkdir -p librechat/data-node librechat/meili_data_v1.35.1
+sudo chown -R 999:999   librechat/data-node
+sudo chown -R 1000:1000 librechat/meili_data_v1.35.1
+touch librechat/.env     # bound as a FILE; if absent, Docker creates a directory and the API dies
+
 docker compose --profile chat up -d
 ```
+
+The Ask tab needs `LIBRECHAT_API_KEY` and `LIBRECHAT_AGENT_ID`, which only exist once LibreChat
+is running: create a key in its UI under Settings, copy the Project Assistant agent id, put both
+in `.env`, then recreate `web`. Deleting `librechat/data-node` destroys that account and the key
+with it. Every other view works without any of this.
 
 ## 6. Verify before you show anyone
 

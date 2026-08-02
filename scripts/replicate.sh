@@ -90,8 +90,15 @@ echo "== 5. derive, unmodified pipeline, with its own post-conditions" >&2
 
 s_raw="$(CH_DATABASE=$SRC val "SELECT count() FROM raw_events WHERE event_timestamp <= '$CUT'")"
 d_raw="$(CH_DATABASE=$DST val "SELECT count() FROM raw_events")"
-s_frz="$(CH_DATABASE=$SRC val "SELECT count() FROM raw_events WHERE event_timestamp < {frozen_before:String}")"
-d_frz="$(CH_DATABASE=$DST val "SELECT count() FROM raw_events WHERE event_timestamp < {frozen_before:String}")"
+# THE CORPUS BOUNDARY IS PINNED HERE, and is deliberately NOT the {frozen_before} parameter.
+# ch.sh defaults FROZEN_BEFORE to 2100-01-01 so the consoles can SEE the live slice, which is
+# right for reading a live curve and poison for this assertion: at 2100-01-01 "frozen slice"
+# means "every row in the table", so a live source is compared against a pinned destination and
+# can never match. Observed as a spurious FAIL reporting 3,804,245 against 905,558 while every
+# assertion that mattered had passed. The graded corpus boundary is a fixed date, not a knob.
+CORPUS_BEFORE="${CORPUS_BEFORE:-2026-08-01}"
+s_frz="$(CH_DATABASE=$SRC val "SELECT count() FROM raw_events WHERE event_timestamp < '$CORPUS_BEFORE'")"
+d_frz="$(CH_DATABASE=$DST val "SELECT count() FROM raw_events WHERE event_timestamp < '$CORPUS_BEFORE'")"
 s_con="$(CH_DATABASE=$SRC val "SELECT count() FROM content")"
 d_con="$(CH_DATABASE=$DST val "SELECT count() FROM content")"
 d_arr="$(CH_DATABASE=$DST val "SELECT countIf(arrival_timestamp > toDateTime64(0, 3)) FROM raw_events")"
