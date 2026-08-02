@@ -31,6 +31,7 @@
 .brand {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--spacing-8);
 }
 
@@ -152,11 +153,12 @@
   color: var(--text-primary);
 }
 
-/* The signature accent, and the ONLY place it appears in this console. The system reserves
-   neon-yellow for hero headline text; it is never a series, a badge, or a state. */
+/* The signature accent, and the ONLY place it appears in this console: never a series, never a
+   badge, never a state. The text on it is the chassis colour, not the body ink, because the
+   highlight is now v1's phosphor amber and light ink on amber is unreadable. */
 .mark {
   background: var(--neon-yellow);
-  color: var(--text-primary);
+  color: var(--bg);
   padding: 0 var(--spacing-4);
 }
 
@@ -402,6 +404,19 @@
   color: var(--text-secondary);
 }
 
+/* A control the current view's query cannot use. Dimmed and struck through so the state is legible
+   without colour alone, since disabled + grey is the one combination a colour-blind reader loses. */
+.select:disabled {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.inertMark {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
 .rule {
   border: 0;
   border-top: 1px solid var(--line-structure);
@@ -416,4 +431,28 @@
   border-left: 3px solid var(--state-warn);
   padding-left: var(--spacing-8);
   max-width: 76ch;
+}
+
+/* Exits to the other two surfaces, kept quiet under the wordmark. */
+.brandLinks {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  margin-top: var(--spacing-8);
+  font-size: var(--text-caption);
+}
+
+.brandLinks a {
+  color: var(--text-tertiary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-default);
+  align-self: flex-start;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.brandLinks a:hover,
+.brandLinks a:focus-visible {
+  color: var(--action-blue);
+  border-bottom-color: var(--action-blue);
 }

@@ -54,6 +54,11 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
       reach: sessionsRow ? Number(reachCol(sessionsRow, 'reach')) : 0,
       ms: Date.now() - t0,
       rowsRead: (curve.statistics?.rows_read ?? 0) + (reach.statistics?.rows_read ?? 0),
+      // Named so a viewer can go from the chart to the SQL that drew it. The submission guidelines
+      // ask for the query alongside the curve, and a path the reader can open beats a pasted copy
+      // that drifts from the file actually executed.
+      sqlFiles: ['sql/queries/serving/concurrency_curve.sql', 'sql/queries/serving/reach.sql'],
+      reads: 'concurrency_deltas',
     }
     return NextResponse.json(body)
   } catch (e) {

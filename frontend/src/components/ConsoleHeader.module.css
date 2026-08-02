@@ -69,3 +69,25 @@
   color: var(--ink);
   font-weight: 600;
 }
+
+/* Wayfinding to the other two surfaces. Quiet: they are exits, not the point of this screen. */
+.links {
+  display: flex;
+  gap: 0.9rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.links a {
+  color: var(--ink-faint);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.links a:hover,
+.links a:focus-visible {
+  color: var(--signal);
+  border-bottom-color: var(--signal);
+}

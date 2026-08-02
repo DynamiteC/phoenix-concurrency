@@ -22,6 +22,46 @@ UNION ALL SELECT 'phoenix_next', countIf(event_timestamp<'2026-08-01'),
 
 ---
 
+## 0. Prerequisite: `content` must be populated
+
+Nothing below loads it, and several things below need it. `scripts/live_producer.sh:150` resolves
+the 15 live stream ids with a JOIN against `content` and hard-fails
+`REFUSING: resolved N live content ids` if the table is empty. Title and category filtering in both
+consoles resolves the same way, so a `content_id` with no `content` row is invisible to every
+filtered query: no error, just a title that silently does not exist.
+
+```bash
+./scripts/load.sh data/ch-hackathon-content-data.csv content phoenix_next   # 33,464 rows
+./scripts/ch.sh --query "SELECT count() FROM phoenix_next.content"          # expect 33464
+```
+
+### Adding a new content_id
+
+**Insert the `content` row before the events.** Columns come from `sql/schema/02_content.sql`;
+`ingested_at` defaults, so four columns is the whole insert:
+
+```bash
+./scripts/ch.sh --query "INSERT INTO content (content_id, title, video_type, category) VALUES
+  (990002, 'Some New Stream', 'live', 'sports')" < /dev/null
+```
+
+`scripts/spike_scenarios.sh:106` is the working example, including the load-bearing `< /dev/null`
+(without it `ch.sh` waits on stdin and the insert hangs). `content` is a
+`ReplacingMergeTree ORDER BY content_id`, so re-inserting the same id is a safe upsert rather than a
+duplicate, but reads that must not see both versions need `FINAL`.
+
+Orphan check, after any ingest that introduces ids:
+
+```bash
+./scripts/ch.sh --format PrettyCompact --query "
+SELECT DISTINCT r.content_id FROM raw_events AS r
+LEFT ANTI JOIN content AS c ON r.content_id = c.content_id LIMIT 20"
+```
+
+Zero rows is the pass condition. Anything it returns is a title the filters cannot reach.
+
+---
+
 ## 1. Live-stream ingest (the main demo)
 
 15 concurrent Sony LIV live streams, ~12,000 concurrent sessions, one hour.

@@ -53,6 +53,10 @@ export interface ConcurrencyResponse {
   reach: number
   ms: number
   rowsRead?: number
+  /** The shipped query files this answer came from, repo-relative, shown under the chart. */
+  sqlFiles?: readonly string[]
+  /** The serving table those queries read. */
+  reads?: string
 }
 
 export interface StatusResponse {

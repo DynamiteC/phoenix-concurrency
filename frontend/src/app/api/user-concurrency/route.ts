@@ -43,6 +43,8 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
       reach: usersRow ? Number(reachCol(usersRow, 'reach')) : 0,
       ms: Date.now() - t0,
       rowsRead: (curve.statistics?.rows_read ?? 0) + (reach.statistics?.rows_read ?? 0),
+      sqlFiles: ['sql/queries/serving/user_concurrency_curve.sql', 'sql/queries/serving/reach.sql'],
+      reads: 'user_concurrency_deltas',
     }
     return NextResponse.json(body)
   } catch (e) {

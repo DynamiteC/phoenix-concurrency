@@ -72,6 +72,9 @@ const DIMS: {key: 'platform' | 'country' | 'video_type' | 'app_version'; label: 
 
 const nf = new Intl.NumberFormat('en-IN')
 
+/** HyperDX, where docker/clickstack/compose.yml puts it. Override for a deployment. */
+const CLICKSTACK_URL = process.env.NEXT_PUBLIC_CLICKSTACK_URL || 'http://localhost:8090'
+
 /**
  * An identifier is a number that must never be read as a quantity. content_id 990001 formatted as
  * 9,90,001 invites a reader to compare it with a concurrency of 2,000, and it is not that kind of
@@ -243,6 +246,19 @@ export default function InsightConsole() {
       .finally(() => setLoading(false))
   }, [])
 
+  /**
+   * Which filters this view throws away, straight from the response rather than from a second copy
+   * of the honours map kept here. A query that does not reference a parameter ignores it silently,
+   * so an active control over an inert filter tells the viewer the dimension made no difference
+   * when the truth is that it was never asked. Disabled with the reason is a limitation; enabled
+   * and ignored is a bug.
+   *
+   * Guarded on `data.view === view` because the response for the newly selected view has not
+   * arrived yet during a switch. Everything stays enabled for that one tick rather than inheriting
+   * the previous view's answer.
+   */
+  const inert = (f: string): boolean => data?.view === view && data.ignores.includes(f)
+
   // Waits for the watermark before the first read, so the window is anchored on real data rather
   // than on a default that would have to be corrected a moment later.
   useEffect(() => {
@@ -259,6 +275,10 @@ export default function InsightConsole() {
         <div className={styles.brand}>
           <span className={styles.brandMark}>PHOENIX</span>
           <span className={styles.brandSub}>Insights</span>
+          <nav className={styles.brandLinks} aria-label="Related consoles">
+            <a href="/">concurrency console</a>
+            <a href={CLICKSTACK_URL} target="_blank" rel="noreferrer">ClickStack</a>
+          </nav>
         </div>
 
         <nav className={styles.nav} aria-label="Insight views">
@@ -279,10 +299,15 @@ export default function InsightConsole() {
           <span className={styles.footLabel}>Dimensions</span>
           {DIMS.map(({key, label}) => (
             <div key={key} className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor={key}>{label}</label>
+              <label className={styles.fieldLabel} htmlFor={key}>
+                {label}
+                {inert(key) && <span className={styles.inertMark}> not in {data?.reads}</span>}
+              </label>
               <select
                 id={key}
                 className={styles.select}
+                disabled={inert(key)}
+                title={inert(key) ? `${data?.reads} does not carry ${key}` : undefined}
                 value={filters[key]}
                 onChange={(e) => setFilters({...filters, [key]: e.target.value})}
               >
@@ -295,7 +320,10 @@ export default function InsightConsole() {
           ))}
 
           <div className={styles.field}>
-            <label className={styles.fieldLabel} htmlFor="content">Content</label>
+            <label className={styles.fieldLabel} htmlFor="content">
+              Content
+              {inert('content_id') && <span className={styles.inertMark}> not in {data?.reads}</span>}
+            </label>
             {/* By TITLE, never by id, for the reason the v1 rail gives: thousands of content ids
                 reach the serving layer and nobody filtering a dashboard knows which 8-digit number
                 is which show. Local text state, because deriving the input value from content_id
@@ -304,7 +332,9 @@ export default function InsightConsole() {
               id="content"
               className={styles.select}
               list="v2-content-titles"
-              placeholder="all titles"
+              disabled={inert('content_id')}
+              title={inert('content_id') ? `${data?.reads} does not carry content_id` : undefined}
+              placeholder={inert('content_id') ? 'not filterable here' : 'all titles'}
               value={contentText}
               onChange={(e) => {
                 setContentText(e.target.value)

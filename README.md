@@ -54,6 +54,45 @@ Full reasoning, with the measured cost of every choice, in
 [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md). Table-by-table detail in
 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
 
+### Filters, and the dataset column behind each
+
+The submission guidelines ask which dataset columns back the filters. Every one of these is carried
+into the serving table itself, so filtering prunes granules rather than post-filtering a result.
+
+| Filter in the UI | Dataset column | Where it lives at serving time | Applies to |
+|---|---|---|---|
+| Platform | `platform` (raw event) | `concurrency_deltas`, `user_concurrency_deltas`, `audience_minute_snapshot` | curve, peak/average, all v2 views whose table carries it |
+| Country | `country` (raw event) | same | same |
+| Video type | `video_type` (content metadata) | same, denormalised at derive time | same |
+| App version | `app_version` (raw event) | same | same |
+| Content | `title` -> `content_id` (content metadata) | `content` resolves the title, `content_id` prunes the delta table | same |
+| Time window + grain | `event_timestamp` (raw event) | `minute` in every serving table | curve, peak/average, every v2 view |
+
+Content is filtered **by title, never by id**: thousands of content ids reach the serving layer and
+nobody filtering a dashboard knows which eight-digit number is which show. The title is resolved
+against `content` (`sql/schema/02_content.sql`), which is why a new `content_id` needs a `content`
+row before its events arrive: see [`docs/INGEST_COMMANDS.md`](docs/INGEST_COMMANDS.md) section 0.
+
+Two documented dataset dimensions are deliberately **not** exposed. `subtitle_language` is carried
+in `raw_events` but not denormalised into the serving tables, and `category` is in `content` but is
+not a concurrency dimension anyone asked a question about. Adding either means a column on the
+delta tables and a re-derive, not a UI change.
+
+Not every v2 insight table carries every dimension: `concurrency_spike_events` is aggregated per
+spike, and `late_event_audit` carries the event and its timing rather than the session's dimensions
+(joining back for them would put `raw_events` in the plan, which the read-budget gate forbids). The
+v2 console disables the controls a view cannot honour and names the table that lacks the column,
+rather than accepting a filter and quietly dropping it. `docs/SUBMISSION_COMPLIANCE.md` has the
+per-view matrix.
+
+### The queries behind the curve
+
+Included per the guidelines, since the modelling is the thing being judged rather than the chart:
+[`sql/queries/serving/concurrency_curve.sql`](sql/queries/serving/concurrency_curve.sql) (sessions),
+[`user_concurrency_curve.sql`](sql/queries/serving/user_concurrency_curve.sql) (distinct users), and
+[`peak_average.sql`](sql/queries/serving/peak_average.sql) (peak plus both averages, at any grain).
+Both consoles print the file they ran, the table it read and its row count under every answer.
+
 ### Proven numbers
 
 Each links to a command and an artifact via [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv).

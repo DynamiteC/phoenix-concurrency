@@ -100,6 +100,23 @@ async function fetchConcurrency(path: string, filters: ClientFilters): Promise<C
   return body as ConcurrencyResponse
 }
 
+/**
+ * The query behind the numbers above it, named rather than pasted. The submission guidelines ask
+ * for the ClickHouse query alongside the curve; a path the reader can open beats a copy in the UI,
+ * which would be a second version of the query text to drift from the file that actually ran.
+ */
+function Provenance({data}: {data: ConcurrencyResponse}) {
+  if (!data.sqlFiles) return null
+  return (
+    <p className={styles.provenance}>
+      reads <code>{data.reads}</code> via{' '}
+      {data.sqlFiles.map((f, i) => (
+        <span key={f}>{i > 0 && ' + '}<code>{f}</code></span>
+      ))}
+    </p>
+  )
+}
+
 export default function Dashboard() {
   const [dims, setDims] = useState<DimensionValue[]>([])
   const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS)
@@ -279,6 +296,7 @@ export default function Dashboard() {
                   value={primary.rowsRead != null ? nf.format(primary.rowsRead) : 'n/a'}
                 />
               </div>
+              <Provenance data={primary}/>
             </div>
           )}
 
@@ -310,6 +328,8 @@ export default function Dashboard() {
                   accent="cool"
                 />
               </div>
+              <Provenance data={sessionData}/>
+              <Provenance data={userData}/>
               <DivergenceBadge
                 sessionPeak={sessionData.peakConcurrency}
                 userPeak={userData.peakConcurrency}
