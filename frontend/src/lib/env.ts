@@ -45,3 +45,11 @@ export const CH_DATABASE = process.env.CH_DATABASE || 'default'
 // Set FROZEN_BEFORE=2026-08-01 in the environment to restore evidence parity for a comparison
 // run: the queries are unchanged, so the frozen figures reproduce exactly.
 export const FROZEN_BEFORE = process.env.FROZEN_BEFORE || '2100-01-01'
+
+// LibreChat's OpenAI-compatible remote-agent endpoint (see /api/ask). LIBRECHAT_API_KEY and
+// LIBRECHAT_AGENT_ID are blank until the user creates a key in the LibreChat UI (Settings ->
+// API Keys) and copies the Project Assistant agent's id — /api/ask fails loudly per-request
+// until both are set, same pattern as CH_HOST above.
+export const LIBRECHAT_URL = process.env.LIBRECHAT_URL || 'http://localhost:3080'
+export const LIBRECHAT_API_KEY = process.env.LIBRECHAT_API_KEY || ''
+export const LIBRECHAT_AGENT_ID = process.env.LIBRECHAT_AGENT_ID || ''
