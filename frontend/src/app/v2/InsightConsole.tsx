@@ -73,11 +73,8 @@ const DIMS: {key: 'platform' | 'country' | 'video_type' | 'app_version'; label: 
 
 const nf = new Intl.NumberFormat('en-IN')
 
-/** HyperDX, where docker/clickstack/compose.yml puts it. Override for a deployment. The login is
- *  carried on the link for the reason ConsoleHeader.tsx sets out: it cannot be turned off without
- *  rebuilding the image and losing the provisioned dashboards. */
-const CLICKSTACK_URL = process.env.NEXT_PUBLIC_CLICKSTACK_URL || 'http://localhost:8090'
-const CLICKSTACK_LOGIN = 'demo login: phoenix@example.com / PhoenixClickathon2026!'
+/** Not the HyperDX URL: /clickstack signs in first and then redirects there. See its route. */
+const CLICKSTACK_URL = '/clickstack'
 
 /**
  * An identifier is a number that must never be read as a quantity. content_id 990001 formatted as
@@ -281,7 +278,12 @@ export default function InsightConsole() {
           <span className={styles.brandSub}>Insights</span>
           <nav className={styles.brandLinks} aria-label="Related consoles">
             <a href="/">concurrency console</a>
-            <a href={CLICKSTACK_URL} target="_blank" rel="noreferrer" title={CLICKSTACK_LOGIN}>
+            <a
+              href={CLICKSTACK_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="Opens the ClickStack dashboard, already signed in"
+            >
               ClickStack
             </a>
           </nav>
