@@ -114,3 +114,15 @@ export interface OpenSessionsResponse {
 export interface ApiError {
   error: string
 }
+
+/** One turn in the Ask AI thread, the exact shape /api/ask forwards to LibreChat's
+ *  OpenAI-compatible messages array. */
+export interface AskMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface AskResponse {
+  content: string
+  ms: number
+}

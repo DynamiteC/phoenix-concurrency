@@ -10,6 +10,7 @@ import StatReadout from './StatReadout'
 import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
 import OpenSessions from './OpenSessions'
+import AskAI from './AskAI'
 import styles from './Dashboard.module.css'
 
 const EMPTY_FILTERS: ClientFilters = {
@@ -106,7 +107,7 @@ export default function Dashboard() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
-  const [mode, setMode] = useState<Mode | 'compare' | 'open'>('sessions')
+  const [mode, setMode] = useState<Mode | 'compare' | 'open' | 'ask'>('sessions')
 
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [sessionData, setSessionData] = useState<ConcurrencyResponse | null>(null)
@@ -232,7 +233,9 @@ export default function Dashboard() {
 
           {mode === 'open' && <OpenSessions asOf={status?.latestEvent ?? null}/>}
 
-          {mode !== 'compare' && mode !== 'open' && primary && (
+          {mode === 'ask' && <AskAI/>}
+
+          {mode !== 'compare' && mode !== 'open' && mode !== 'ask' && primary && (
             <div className={styles.stats}>
               <div className={styles.statsHero}>
                 <StatReadout
@@ -315,9 +318,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          {mode !== 'open' && <ConcurrencyChart series={series}/>}
+          {mode !== 'open' && mode !== 'ask' && <ConcurrencyChart series={series}/>}
 
-          {mode !== 'open' && (
+          {mode !== 'open' && mode !== 'ask' && (
           <footer className={styles.footnote}>
             Curve is read from{' '}
             {mode === 'users' ? <code>user_concurrency_deltas</code> : <code>concurrency_deltas</code>}, a
