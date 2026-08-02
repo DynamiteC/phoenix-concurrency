@@ -119,7 +119,14 @@ ORDER BY transitions DESC
 -- carries is a range or a dimension, so it full-scans by construction. That is a property of the
 -- key rather than of this query, it is why the budget below is sized against the whole table, and
 -- it is the first thing to revisit if this view gets slow at ten times the volume.
-SETTINGS max_rows_to_read = 4200000,
-         max_bytes_to_read = 380000000,
+-- RESIZED against the live table rather than the frozen corpus it was first written for. The
+-- budget was 4.2M rows, which the table itself passed at 2.21M today, so the console's
+-- "everything derived" range failed with "Limit for rows to read exceeded" the moment live ingest
+-- pushed a full-range scan past it. A guard that fires on the honest query rather than on the
+-- runaway one teaches a reader to raise it without looking, which is worse than no guard.
+-- Sized at roughly 4x the current table so it still catches a join that fans out, and it is a
+-- CEILING, not a target: the measured read for a one-day window is 576,093 rows.
+SETTINGS max_rows_to_read = 9000000,
+         max_bytes_to_read = 820000000,
          max_execution_time = 30,
          timeout_before_checking_execution_speed = 0;

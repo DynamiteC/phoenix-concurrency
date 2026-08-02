@@ -237,7 +237,15 @@ while :; do
     # 1 session in 8 reuses its neighbour's user id, so ~12% of users hold two concurrent
     # sessions. The corpus runs 1.13 sessions per user; without this, user concurrency and
     # session concurrency would be identical and user_minute_runs would prove nothing.
-    uid="concat('du_${RUN}_${i}_', toString(if(number % 8 = 0, number - 1, number)))"
+    #
+    # ONE USER IN ELEVEN IS SHARED ACROSS STREAMS, which is what makes content switching exist at
+    # all. Namespacing every user id by stream index (the `${i}_` below) means a user can only ever
+    # be seen on one content, so `user_content_transitions` derives nothing from live data no
+    # matter how long the producer runs: measured, 804 rows, none of them after the frozen corpus.
+    # Dropping the stream index for a slice of ids lets the same person turn up on two streams,
+    # which is the event the switching and handoff views exist to explain. 1 in 11 keeps it a
+    # minority behaviour rather than making every viewer a channel surfer.
+    uid="concat('du_${RUN}_', if(number % 11 = 0, '', '${i}_'), toString(if(number % 8 = 0, number - 1, number)))"
     # Reference the hoisted WITH aliases, never the array literals. Inlining them put the two
     # 12-tuple arrays into all 75 branches and the statement reached ~90 KB, which the shell
     # rejected outright with "Argument list too long". Named once, used everywhere.
