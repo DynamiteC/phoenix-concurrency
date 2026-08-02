@@ -29,6 +29,15 @@ this repo's prose. The end-bound fix (decision D8) moved peak from 2,829 to 2,82
 from 88.20 to 88.06. `corrections.md` lists every restated figure. Older documents still carry the
 previous values and are kept deliberately as the audit trail.
 
+**2026-08-02:** both consoles now share one design system (`frontend/src/app/globals.css`, `/v2`
+aliasing onto it via `tokens.css`) and render the executed query text with its read cost via the
+shared `QueryPanel` component, see `frontend/README.md`. `scripts/validate_insights.sh` gained a
+third, self-contained `<name>_diff.sql` reference shape; Gate A now passes for `state_flow`
+(36 rows each side, 0 disagreements, `evidence/insight_parity_state_flow__20260802T003437Z__8cae0d7-dirty.tsv`)
+and Gate B evidence now exists for `state_flow` and `spike_explanation`. See
+`docs/SUBMISSION_COMPLIANCE.md` Table 2 for the remaining gap (`spike_explanation` still has no
+Gate A parity file).
+
 ## Done
 
 | Item | Evidence | Owner |

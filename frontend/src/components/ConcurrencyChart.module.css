@@ -23,8 +23,9 @@
   font-family: var(--font-mono);
 }
 
+/* Was a drop-shadow glow for a line sitting on black; on paper the same blur just reads as a
+   smudge around the ink, so the line now carries its weight on stroke-width alone. */
 .glow {
-  filter: drop-shadow(0 0 4px currentColor);
 }
 
 .legend {
@@ -53,18 +54,21 @@
 
 /* ------------------------------------------------------------- reference lines + peak marker */
 
+/* No opacity reduction: --ink-faint and --phosphor were already dimmed for exactly this job (a
+   reference line, not the data itself), and on dark backgrounds that dimming survived an extra
+   opacity cut. On paper the same cut drags a dashed line's contrast under the 3:1 floor a
+   graphical element needs, so each line now relies on the token's own contrast (4.70:1 / 4.60:1
+   against the paper) and the dash pattern alone to read as secondary. */
 .refLine {
   stroke: var(--ink-faint);
   stroke-width: 1;
   stroke-dasharray: 4 3;
-  opacity: 0.7;
 }
 
 .refLineP95 {
   stroke: var(--phosphor);
   stroke-width: 1;
   stroke-dasharray: 4 3;
-  opacity: 0.55;
 }
 
 .refLabel {
@@ -75,11 +79,12 @@
   text-transform: uppercase;
 }
 
+/* Same reasoning as .refLine: the opacity cut that kept this quiet on black drops it below 3:1
+   on paper, so the guide now stands on --ink-faint's own contrast and the tight dash alone. */
 .peakGuide {
   stroke: var(--ink-faint);
   stroke-width: 1;
   stroke-dasharray: 2 2;
-  opacity: 0.5;
 }
 
 .peakDot {
@@ -102,9 +107,10 @@
   }
 }
 
+/* The pulse used to read as a glowing phosphor dot against black; the drop-shadow that faked
+   that glow is gone, the opacity/radius pulse alone still reads as "still moving" on paper. */
 .livePoint {
   fill: currentColor;
-  filter: drop-shadow(0 0 5px currentColor);
   animation: chart-pulse 1.8s ease-in-out infinite;
 }
 
@@ -136,7 +142,10 @@
   pointer-events: none;
   white-space: nowrap;
   z-index: 5;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  /* The heavy black shadow was there to lift this off a dark chassis; on paper it just reads as
+     a bruise. Softened and warmed to the ink colour, at the same low weight the modal shadow in
+     tokens.css uses for the one other element allowed to float above the page. */
+  box-shadow: 0 6px 16px rgba(20, 24, 28, 0.16);
 }
 
 .tooltipTime {

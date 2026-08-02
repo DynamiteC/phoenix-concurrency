@@ -116,7 +116,8 @@ export async function GET(
   const filters = parseInsightFilters(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
-    const result = await insightQuery(insightSql(spec.file), filters)
+    const sql = insightSql(spec.file)
+    const result = await insightQuery(sql, filters)
     return NextResponse.json({
       view,
       question: spec.question,
@@ -127,10 +128,15 @@ export async function GET(
       ignores: ALL_FILTERS.filter((f) => !spec.honours.includes(f)),
       database: INSIGHT_DATABASE,
       sqlFile: `sql/insights/benchmark/${spec.file}`,
+      // The text that just ran, not a copy of it. Read from the file at request time, so what is
+      // on screen is what executed.
+      sql,
       columns: result.meta.map((c) => c.name),
       rows: result.data,
       ms: Date.now() - t0,
       rowsRead: result.statistics?.rows_read ?? 0,
+      bytesRead: result.statistics?.bytes_read ?? 0,
+      serverMs: Math.round((result.statistics?.elapsed ?? 0) * 1000),
     })
   } catch (e) {
     return NextResponse.json({error: (e as Error).message}, {status: 500})

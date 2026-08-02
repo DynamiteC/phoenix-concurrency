@@ -22,6 +22,46 @@ UNION ALL SELECT 'phoenix_next', countIf(event_timestamp<'2026-08-01'),
 
 ---
 
+## 0. Prerequisite: `content` must be populated
+
+Nothing below loads it, and several things below need it. `scripts/live_producer.sh:150` resolves
+the 15 live stream ids with a JOIN against `content` and hard-fails
+`REFUSING: resolved N live content ids` if the table is empty. Title and category filtering in both
+consoles resolves the same way, so a `content_id` with no `content` row is invisible to every
+filtered query: no error, just a title that silently does not exist.
+
+```bash
+./scripts/load.sh data/ch-hackathon-content-data.csv content phoenix_next   # 33,464 rows
+./scripts/ch.sh --query "SELECT count() FROM phoenix_next.content"          # expect 33464
+```
+
+### Adding a new content_id
+
+**Insert the `content` row before the events.** Columns come from `sql/schema/02_content.sql`;
+`ingested_at` defaults, so four columns is the whole insert:
+
+```bash
+./scripts/ch.sh --query "INSERT INTO content (content_id, title, video_type, category) VALUES
+  (990002, 'Some New Stream', 'live', 'sports')" < /dev/null
+```
+
+`scripts/spike_scenarios.sh:106` is the working example, including the load-bearing `< /dev/null`
+(without it `ch.sh` waits on stdin and the insert hangs). `content` is a
+`ReplacingMergeTree ORDER BY content_id`, so re-inserting the same id is a safe upsert rather than a
+duplicate, but reads that must not see both versions need `FINAL`.
+
+Orphan check, after any ingest that introduces ids:
+
+```bash
+./scripts/ch.sh --format PrettyCompact --query "
+SELECT DISTINCT r.content_id FROM raw_events AS r
+LEFT ANTI JOIN content AS c ON r.content_id = c.content_id LIMIT 20"
+```
+
+Zero rows is the pass condition. Anything it returns is a title the filters cannot reach.
+
+---
+
 ## 1. Live-stream ingest (the main demo)
 
 15 concurrent Sony LIV live streams, ~12,000 concurrent sessions, one hour.
@@ -109,8 +149,23 @@ Runs every file in `sql/insights/pipeline/` in order: session facts, state trans
 snapshot, cohorts, playback health. Asserts `rows_under_final == sessions`, which is what makes a
 re-run idempotent rather than additive.
 
-The spike classifier is **not** in that directory on purpose: it takes `content_id` and `version`
-which `refresh_insights.sh` does not bind. Run it via `spike_scenarios.sh`, or directly:
+**Spike classification now runs as part of this**, so every one of the ten v2 views has data after
+a refresh. It still cannot live in `sql/insights/pipeline/`, because every file there is run with
+the same three parameters and the classifier needs a `content_id` and a `version` as well: a spike
+is detected on one piece of content's curve, so there is no content-agnostic form of it. So
+`refresh_insights.sh` picks the candidates itself, classifies each, and reports how many:
+
+```
+spike_content_classified  25
+spike_rows_under_final    27
+```
+
+Candidates are content whose curve peaks at `SPIKE_MIN_PEAK` (50) over at least
+`SPIKE_MIN_MINUTES` (10) minutes, capped at `SPIKE_MAX_CONTENT` (25) by peak. Sweeping every id
+would spend most of the run proving that content nobody watched did not spike. One version stamp
+covers the whole pass, so this run's rows supersede the last run's as a set.
+
+To classify one piece of content by hand, or with different thresholds:
 
 ```bash
 CH_DATABASE=phoenix_next ./scripts/ch.sh \
@@ -120,6 +175,35 @@ CH_DATABASE=phoenix_next ./scripts/ch.sh \
 ```
 
 ---
+
+### Making every v2 view answerable
+
+After a refresh, this reports one row per view's source table. Any zero is a view that will render
+empty:
+
+```bash
+./scripts/ch.sh --format PrettyCompact --query "
+SELECT * FROM (
+  SELECT 'flow / forecast' AS view, count() AS rows FROM phoenix_next.audience_minute_snapshot
+  UNION ALL SELECT 'states',     count() FROM phoenix_next.session_state_transitions
+  UNION ALL SELECT 'retention',  count() FROM phoenix_next.content_entry_cohorts
+  UNION ALL SELECT 'health',     count() FROM phoenix_next.playback_health_minute
+  UNION ALL SELECT 'versions',   count() FROM phoenix_next.session_insight_facts
+  UNION ALL SELECT 'spikes',     count() FROM phoenix_next.concurrency_spike_events
+  UNION ALL SELECT 'switching',  count() FROM phoenix_next.user_content_transitions
+  UNION ALL SELECT 'handoff',    count() FROM phoenix_next.user_platform_transitions
+  UNION ALL SELECT 'lateness',   count() FROM phoenix_next.late_event_audit
+) ORDER BY view"
+```
+
+Two of these depend on the live producer rather than on the refresh, and both were starved until
+`scripts/live_producer.sh` changed:
+
+- **switching** needs one person watching two different pieces of content. Every user id used to be
+  namespaced by stream index, so a user could only ever be seen on one content and
+  `user_content_transitions` derived nothing from live data no matter how long the producer ran.
+  One user in eleven now drops the stream index and can appear on two streams.
+- **spikes** needs the classifier above, which the refresh now runs.
 
 ## 4. Derive loop (concurrency, not insights)
 

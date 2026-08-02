@@ -3,6 +3,7 @@
 import {useEffect, useRef, useState} from 'react'
 import type {ConcurrencyResponse, DimensionValue, ClientFilters, Mode, StatusResponse} from '@/lib/types'
 import {istDateTime, istInputToUtc, utcToIstInput} from '@/lib/time'
+import {bucketPoints, type Grain} from '@/lib/grain'
 import ConsoleHeader from './ConsoleHeader'
 import FilterRail, {type RangeOption, type RefreshOption} from './FilterRail'
 import ModeSwitch from './ModeSwitch'
@@ -10,6 +11,7 @@ import StatReadout from './StatReadout'
 import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
 import OpenSessions from './OpenSessions'
+import QueryPanel from './QueryPanel'
 import AskAI from './AskAI'
 import styles from './Dashboard.module.css'
 
@@ -100,6 +102,22 @@ async function fetchConcurrency(path: string, filters: ClientFilters): Promise<C
   return body as ConcurrencyResponse
 }
 
+/** The query behind the numbers above it, with what it cost. See QueryPanel for why the text. */
+function Provenance({data}: {data: ConcurrencyResponse}) {
+  if (!data.sql || !data.sqlFiles) return null
+  return (
+    <QueryPanel
+      sql={data.sql}
+      files={data.sqlFiles}
+      reads={data.reads}
+      rowsRead={data.rowsRead}
+      bytesRead={data.bytesRead}
+      serverMs={data.serverMs}
+      wallMs={data.ms}
+    />
+  )
+}
+
 export default function Dashboard() {
   const [dims, setDims] = useState<DimensionValue[]>([])
   const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS)
@@ -187,7 +205,7 @@ export default function Dashboard() {
     series.push({
       label: 'Sessions',
       color: 'var(--signal)',
-      points: sessionData.points,
+      points: bucketPoints(sessionData.points, grain),
       avg: sessionData.avgConcurrency,
       p95: sessionData.p95Concurrency,
       peakMinute: sessionData.peakMinute,
@@ -197,7 +215,7 @@ export default function Dashboard() {
     series.push({
       label: 'Users',
       color: 'var(--cool)',
-      points: userData.points,
+      points: bucketPoints(userData.points, grain),
       avg: userData.avgConcurrency,
       p95: userData.p95Concurrency,
       peakMinute: userData.peakMinute,
@@ -222,6 +240,8 @@ export default function Dashboard() {
           customTo={customTo}
           onCustomToChange={setCustomTo}
           boundsMax={status?.frozenLatest ? toInputValue(status.frozenLatest) : undefined}
+          grain={grain}
+          onGrainChange={setGrain}
           refreshMs={refreshMs}
           onRefreshChange={setRefreshMs}
           lastTickAt={lastTickAt}
@@ -279,6 +299,7 @@ export default function Dashboard() {
                   value={primary.rowsRead != null ? nf.format(primary.rowsRead) : 'n/a'}
                 />
               </div>
+              <Provenance data={primary}/>
             </div>
           )}
 
@@ -310,6 +331,8 @@ export default function Dashboard() {
                   accent="cool"
                 />
               </div>
+              <Provenance data={sessionData}/>
+              <Provenance data={userData}/>
               <DivergenceBadge
                 sessionPeak={sessionData.peakConcurrency}
                 userPeak={userData.peakConcurrency}

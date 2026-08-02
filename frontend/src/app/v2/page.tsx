@@ -10,10 +10,10 @@ export const metadata = {
 /**
  * The v2 console, reading the insight layer in phoenix_next.
  *
- * A SEPARATE ROUTE, not a tab on the v1 console, for two reasons that both point the same way.
- * The data is a different generation living in a different database, and the design language is
- * the deliberate inverse of v1's dark control room. Keeping them apart means the validated
- * concurrency console cannot regress because of anything done here.
+ * A SEPARATE ROUTE, not a tab on the v1 console: the data is a different generation living in a
+ * different database, and keeping them apart means the validated concurrency console cannot
+ * regress because of anything done here. The look is v1's, though. tokens.css aliases every v2
+ * token onto the globals.css palette, so both consoles read as one product.
  */
 export default function V2Page() {
   return (

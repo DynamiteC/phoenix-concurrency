@@ -4,6 +4,9 @@ import type {StatusResponse} from '@/lib/types'
 import {istDateTime} from '@/lib/time'
 import styles from './ConsoleHeader.module.css'
 
+/** Not the HyperDX URL: /clickstack signs in first and then redirects there. See its route. */
+const CLICKSTACK_HREF = '/clickstack'
+
 interface Props {
   status: StatusResponse | null
   error: string | null
@@ -18,6 +21,20 @@ export default function ConsoleHeader({status, error}: Props) {
           PH<span className={styles.o}>0</span>ENIX
         </h1>
         <span className={styles.subtitle}>Foreground-only concurrency console</span>
+        {/* The observability stack is a separate service by design (it watches the live stream,
+            this console reads the frozen slice), but nothing in the product pointed at it, so a
+            judge clicking through the UI could not find it. One link fixes that. */}
+        <nav className={styles.links} aria-label="Related consoles">
+          <a href="/v2">insights console</a>
+          <a
+            href={CLICKSTACK_HREF}
+            target="_blank"
+            rel="noreferrer"
+            title="Opens the ClickStack dashboard, already signed in"
+          >
+            ClickStack
+          </a>
+        </nav>
       </div>
 
       <div className={styles.readouts}>

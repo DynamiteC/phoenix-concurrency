@@ -7,7 +7,9 @@ import {CH_HOST, CH_PORT, CH_USER, CH_PASSWORD, CH_DATABASE} from './env'
 interface JSONCompactResult {
   meta: { name: string; type: string }[]
   data: unknown[][]
-  statistics?: { rows_read?: number; elapsed?: number }
+  // bytes_read is what makes "rows read" mean something: 26,904 rows off a 61 KiB table and the
+  // same count off raw_events are the same number and a very different read.
+  statistics?: { rows_read?: number; bytes_read?: number; elapsed?: number }
 }
 
 /**

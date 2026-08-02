@@ -31,19 +31,28 @@
 .brand {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--spacing-8);
+  padding-bottom: var(--spacing-12);
+  border-bottom: 2px solid var(--line-bright);
 }
 
 .brandMark {
-  font-family: var(--font-mono);
-  font-size: var(--text-label);
-  letter-spacing: 0.14em;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-h3);
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
   color: var(--text-primary);
 }
 
+/* Mono against the condensed wordmark, the same pairing the concurrency console's masthead uses.
+   The two consoles are different shapes; the type has to say they are the same product. */
 .brandSub {
-  font-family: var(--font-display);
-  font-size: var(--text-h3);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
   color: var(--text-secondary);
 }
 
@@ -152,11 +161,13 @@
   color: var(--text-primary);
 }
 
-/* The signature accent, and the ONLY place it appears in this console. The system reserves
-   neon-yellow for hero headline text; it is never a series, a badge, or a state. */
+/* The signature accent, and the ONLY place it appears in this console: never a series, never a
+   badge, never a state. A pale tint of the signal behind full-strength ink, so it reads as a
+   highlighter drawn over the headline rather than a label stuck to it. Ink on the tint measures
+   13.25:1. */
 .mark {
   background: var(--neon-yellow);
-  color: var(--text-primary);
+  color: var(--ink);
   padding: 0 var(--spacing-4);
 }
 
@@ -257,23 +268,8 @@
   color: var(--text-primary);
 }
 
-/* Gate B evidence, on screen rather than filed: what it read, and what that cost. */
-.evidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-16);
-}
-
-.evidenceItem {
-  font-size: var(--text-caption);
-  color: var(--text-tertiary);
-}
-
-.evidenceItem code {
-  font-family: var(--font-mono);
-  font-size: var(--text-code-sm);
-  color: var(--text-secondary);
-}
+/* Gate B evidence and the query text now live in the shared QueryPanel component, which both
+   consoles use, so the rules that styled them here are deleted rather than left to rot. */
 
 /* ---- table ---- */
 
@@ -402,6 +398,19 @@
   color: var(--text-secondary);
 }
 
+/* A control the current view's query cannot use. Dimmed and struck through so the state is legible
+   without colour alone, since disabled + grey is the one combination a colour-blind reader loses. */
+.select:disabled {
+  opacity: 0.4;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+
+.inertMark {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
 .rule {
   border: 0;
   border-top: 1px solid var(--line-structure);
@@ -416,4 +425,28 @@
   border-left: 3px solid var(--state-warn);
   padding-left: var(--spacing-8);
   max-width: 76ch;
+}
+
+/* Exits to the other two surfaces, kept quiet under the wordmark. */
+.brandLinks {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  margin-top: var(--spacing-8);
+  font-size: var(--text-caption);
+}
+
+.brandLinks a {
+  color: var(--text-tertiary);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-default);
+  align-self: flex-start;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.brandLinks a:hover,
+.brandLinks a:focus-visible {
+  color: var(--action-blue);
+  border-bottom-color: var(--action-blue);
 }

@@ -14,11 +14,21 @@ async function safeJson(res: Response): Promise<any> {
   }
 }
 
+interface Props {
+  /** Which console is asking. /api/ask is pinned to phoenix, /api/v2/ask to phoenix_next. The
+   *  endpoint is the ONLY thing that differs between the two, and the database it may read is
+   *  fixed server-side rather than sent from here: a client that could name its own database
+   *  would hand that choice to anything able to get a message into the thread. */
+  endpoint?: '/api/ask' | '/api/v2/ask'
+  /** What this console's assistant reads, named on screen so the answer's source is not a guess. */
+  reads?: string
+}
+
 /** Natural-language fallback for questions with no fixed query to hardcode. Calls the real
- *  LibreChat agent (LLM + clickhouse MCP tool) through /api/ask rather than duplicating a chat
- *  UI here — every other mode on this dashboard answers a known question fast and without an
- *  LLM; this is the one place that trades that speed for an open-ended question. */
-export default function AskAI() {
+ *  LibreChat agent (LLM + clickhouse MCP tool) through the API rather than duplicating a chat
+ *  UI here: every other mode answers a known question fast and without an LLM, and this is the
+ *  one place that trades that speed for an open-ended question. */
+export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props = {}) {
   const [thread, setThread] = useState<AskMessage[]>([])
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
@@ -38,13 +48,13 @@ export default function AskAI() {
     setError('')
     setPending(true)
     try {
-      const res = await fetch('/api/ask', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({messages: next}),
       })
       const body = await safeJson(res)
-      if (!res.ok) throw new Error(body.error || '/api/ask failed')
+      if (!res.ok) throw new Error(body.error || `${endpoint} failed`)
       setThread([...next, {role: 'assistant', content: body.content as string}])
     } catch (e) {
       setError((e as Error).message)
@@ -58,8 +68,8 @@ export default function AskAI() {
       <div className={styles.meta}>
         <p className={styles.hint}>
           Backed by the LibreChat agent with a live <code>clickhouse</code> MCP tool, not a canned
-          query. Slower than the other tabs and it can be wrong — verify anything load-bearing
-          against the curve.
+          query, and scoped to <code>{reads}</code>. Slower than the other tabs and it can be
+          wrong: verify anything load-bearing against the curve.
         </p>
         {thread.length > 0 && (
           <button

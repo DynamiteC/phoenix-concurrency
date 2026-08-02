@@ -38,7 +38,7 @@
 }
 
 /* Hero row and secondary row are each ONE instrument strip, not a grid of separate cards and not
-   a panel floating in its own tinted box either: no fill, no enclosing border, no radius — just
+   a panel floating in its own tinted box either: no fill, no enclosing border, no radius, just
    the two hairline rules a strip of gauges would be scored by, with the same dividers between
    segments. The chassis surface (page background + grid texture) runs straight through. A row of
    boxed KPI cards is the single most generic "AI dashboard" tell there is; a whole screen built
@@ -68,12 +68,24 @@
   border-left: none;
 }
 
-/* Diagnostics: engineering readouts, not audience metrics — kept small, quiet, and out of the
+/* Diagnostics: engineering readouts, not audience metrics, kept small, quiet, and out of the
    way at the end of the group instead of matching the hero cards' visual weight. */
 .statsMeta {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+
+/* Query provenance under the readouts: the file that produced the numbers above it. */
+.provenance {
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}
+
+.provenance code {
+  color: var(--ink-dim);
 }
 
 .footnote {

@@ -27,7 +27,39 @@ open http://localhost:8090
 
 Login: `phoenix@example.com` / `PhoenixClickathon2026!` (overridable via `HDX_EMAIL` and
 `HDX_PASSWORD`). This is a local container on a laptop, so the credential is a convenience, not a
-secret; nothing is exposed beyond localhost.
+secret; nothing is exposed beyond localhost. **Nobody demoing this has to type it.** The ClickStack
+link in either console points at `/clickstack`, a route that signs in server-side and redirects
+straight to the provisioned dashboard.
+
+### Why a sign-in route rather than no sign-in at all
+
+The obvious ask for a demo is to remove the login entirely. Two measurements say that costs more
+than it buys:
+
+- HyperDX enforces auth **server-side**. An unauthenticated `GET /api/dashboards` and `GET /api/me`
+  both return `401` on this container, so nothing client-side can bypass it.
+- Its no-login local mode is a **build-time** flag, not a runtime one:
+  `NEXT_PUBLIC_IS_LOCAL_MODE=true` appears in the image's own `build:clickhouse` script, and the
+  shipped bundle carries `"NEXT_PUBLIC_IS_LOCAL_MODE":"false"`. Flipping the value in the served
+  `__ENV.js` changes what the browser reads and not what the API enforces.
+
+Local mode also stores connections and sources in the browser rather than on the server, which is
+exactly where `scripts/clickstack_setup.sh` puts the five provisioned tiles and the Cloud
+connection. Turning it on would trade one sign-in for an empty app asking a judge to configure a
+ClickHouse connection by hand.
+
+So the login stays and the viewer is carried through it. `frontend/src/app/clickstack/route.ts`
+POSTs the credential to `/api/login/password`, re-issues the returned `connect.sid` on its own
+response, and redirects. It works because HyperDX scopes that cookie with `Domain=localhost` and
+cookies are scoped by host, **not by port**: a cookie set on `localhost:3200` is sent to
+`localhost:8090`. The dashboard id is looked up through the API rather than hardcoded, since
+`clickstack_setup.sh` creates a different one per install.
+
+Verified this session: `GET /clickstack` returns `307` to
+`/dashboards/<id>`, and that cookie answers `200` on `/api/me` and returns the
+`Phoenix Foreground Concurrency` dashboard from `/api/dashboards`. Every failure degrades to the
+plain HyperDX URL, so a stopped container looks like a stopped container and a wrong credential
+looks like a login form, rather than either becoming an error page on the console.
 
 `scripts/clickstack_setup.sh` provisions everything through HyperDX's REST API rather than through
 the UI, which is what makes this page reproducible. The panel SQL in that script is the panel
@@ -58,8 +90,10 @@ records both connection hosts side by side so the distinction is visible rather 
 **And the script now proves it rather than assuming it.** Step 5 runs the panel SQL through
 HyperDX's *own* `/api/clickhouse-proxy`, pinned to the connection the panels use, and fails if it
 does not get rows back. Running the SQL against ClickHouse directly only proves the SQL is valid;
-it says nothing about which database HyperDX will choose. Measured on the last run: HyperDX read
-**33,489** delta rows from `phoenix` and a watermark lag of **53s** through that connection. If
+it says nothing about which database HyperDX will choose. Measured on the run behind
+`[V:clickstack_integration]`: HyperDX read **33,489** delta rows from `phoenix` and a watermark lag
+of **53s** through that connection. Both figures move with the live stream and are quoted here as
+the artifact recorded them, not as a current reading. If
 the app ever falls back to the bundled instance, `phoenix.*` does not exist there and the setup
 fails loudly instead of producing an empty dashboard.
 

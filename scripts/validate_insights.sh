@@ -25,12 +25,66 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 fail_any=0
 
+POS='--param_platform= --param_country= --param_video_type= --param_app_version=
+     --param_content_id=0'
+
+# Self-contained server-side diff. Empty output is the pass, which is also exactly what a
+# comparison that never happened looks like, so the two sides are counted separately and both are
+# required to be non-empty before an empty diff is allowed to mean anything. This repo already has
+# a file listing eleven numbers that were plausible and unchecked; a green check that checked
+# nothing is the failure mode worth spending ten lines on.
+validate_selfdiff() {
+  local name="$1" diff_sql="$2"
+  local gt="sql/insights/validation/${name}_ground_truth.sql"
+  local op="sql/insights/benchmark/${name}.sql"
+  local from="${FROM_TS:-2026-07-26 00:00:00}" to="${TO_TS:-2026-07-27 00:00:00}"
+  local frozen="${FROZEN_BEFORE:-2026-08-01}"
+
+  run() { # queries-file -> TSV on stdout
+    # shellcheck disable=SC2086
+    ./scripts/ch.sh --format TSV $POS \
+      --param_from_ts="$from" --param_to_ts="$to" --param_frozen_before="$frozen" \
+      --queries-file "$1" 2>/dev/null </dev/null
+  }
+
+  echo "== $name: server-side diff on $DB" >&2
+  local differing gt_rows op_rows verdict=PASS
+  differing=$(run "$diff_sql" | grep -c . || true)
+  gt_rows=$([ -f "$gt" ] && run "$gt" | grep -c . || echo 0)
+  op_rows=$(run "$op" | grep -c . || true)
+
+  [ "$differing" = 0 ] || { verdict=FAIL; fail_any=1; }
+  { [ "${gt_rows:-0}" -gt 0 ] && [ "${op_rows:-0}" -gt 0 ]; } || { verdict=FAIL; fail_any=1; }
+
+  {
+    printf 'metric\tvalue\n'
+    printf 'insight\t%s\n'  "$name"
+    printf 'database\t%s\n' "$DB"
+    printf 'reference_kind\tserver-side diff: %s (both sides embedded, one statement)\n' "$diff_sql"
+    printf 'window\t%s -> %s (frozen_before %s)\n' "$from" "$to" "$frozen"
+    printf 'ground_truth_rows\t%s\t(required greater than 0)\n' "$gt_rows"
+    printf 'optimized_rows\t%s\t(required greater than 0)\n'    "$op_rows"
+    printf 'differing_rows\t%s\t(required 0)\n'                 "$differing"
+    printf 'missing_keys\t0\t(the diff reports a missing key as a differing row, with a side column)\n'
+    printf 'unexpected_keys\t0\t(same)\n'
+    printf 'verdict\t%s\n' "$verdict"
+    [ "$differing" = 0 ] || run "$diff_sql" | head -6 | sed 's/^/# diff: /'
+  } | evidence "insight_parity_${name}" \
+      "${name}: Gate A, ${diff_sql} returns zero disagreements against the ${DB} serving table" \
+    | xargs cat
+}
+
 validate() {
   local name="$1"
   local gt="sql/insights/validation/${name}_ground_truth.sql"
   local ref="sql/insights/validation/${name}_reference.sql"
   local op="sql/insights/validation/${name}_optimized.sql"
-  [ -f "$op" ] || { echo "skip $name: no optimized side" >&2; return 0; }
+  local selfdiff="sql/insights/validation/${name}_diff.sql"
+  # A THIRD SHAPE: the whole subtraction in one server-side file. Both sides read the same
+  # database, so unlike the two-engine form there is nothing for bash to join, and the file
+  # returns one row per disagreement and nothing at all when they agree.
+  [ -f "$op" ] || { [ -f "$selfdiff" ] && { validate_selfdiff "$name" "$selfdiff"; return $?; }
+                    echo "skip $name: no optimized side" >&2; return 0; }
 
   # TWO KINDS OF REFERENCE, and which one a given insight gets is a real distinction rather than
   # a convenience.

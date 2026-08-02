@@ -53,6 +53,15 @@ export interface ConcurrencyResponse {
   reach: number
   ms: number
   rowsRead?: number
+  /** The shipped query files this answer came from, repo-relative, shown under the chart. */
+  sqlFiles?: readonly string[]
+  /** The query text actually executed, one entry per file above, shown on screen. */
+  sql?: readonly string[]
+  /** The serving table those queries read. */
+  reads?: string
+  /** Server-side read cost from ClickHouse's own statistics, printed under the query. */
+  bytesRead?: number
+  serverMs?: number
 }
 
 export interface StatusResponse {
@@ -128,10 +137,16 @@ export interface InsightTableResponse {
   ignores: readonly string[]
   database: string
   sqlFile: string
+  /** The query text actually executed, shown on screen. The guidelines ask for the query itself,
+   *  not a reference to it: it is the artifact a judge reads to see how concurrency is modelled. */
+  sql: string
   columns: string[]
   rows: unknown[][]
   ms: number
   rowsRead: number
+  /** Server-side read cost from ClickHouse's own statistics, printed under the query. */
+  bytesRead?: number
+  serverMs?: number
 }
 
 /** Derivation watermarks, one per insight table, against the raw stream's own. */
