@@ -384,11 +384,19 @@ export async function askAgent(
         // falling back to the server credential, so the default path is byte-for-byte unchanged.
         ...(cred.provider ? {'X-LibreChat-Endpoint': cred.provider.endpoint} : {}),
       },
-      // The system turn is prepended HERE, after validation stripped any the client tried to send,
-      // so it is always first and always ours.
+      // NOT a `role: 'system'` message here, on purpose. The remote-agent endpoint already turns
+      // the Project Assistant agent's own stored `instructions` (Mongo `agents` collection) into
+      // the conversation's leading system turn before this reaches the model. Adding a second
+      // system message makes two, and Google's Gemini backend rejects any system message that
+      // isn't at index 0 ("System message should be the first one" — @langchain/google-genai).
+      // So the scope pin travels as a preamble on the latest turn instead, which validateThread
+      // guarantees is role: 'user', and is re-attached on every call since the whole thread is
+      // resent stateless each time.
       body: JSON.stringify({
         model: LIBRECHAT_AGENT_ID,
-        messages: [{role: 'system', content: systemPrompt(scope)}, ...messages],
+        messages: messages.map((m, i) =>
+          i === messages.length - 1 ? {...m, content: `${systemPrompt(scope)}\n\n---\n\n${m.content}`} : m,
+        ),
         stream: false,
       }),
       signal: controller.signal,
