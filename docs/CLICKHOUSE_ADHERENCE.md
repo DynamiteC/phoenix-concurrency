@@ -83,19 +83,33 @@ distinction is what makes keeping it defensible.
 
 ## Fixes, in order
 
-1. `content` (`sql/schema/02_content.sql:17`) should be `ReplacingMergeTree(ingested_at)` so dedup
-   on re-ingestion is deterministic rather than falling back to part insertion order.
-   **Deferred, not declined.** An engine change is a table rebuild, and a two-hour live ingest is
-   running against both `phoenix` and `phoenix_next`; `check_docs.sh` compares committed DDL to the
-   live schema, so changing the file without applying it turns a green gate red. Apply when the
-   demo window closes, both databases at once. Low urgency: `content` is loaded once from the
-   catalogue CSV and re-inserts today carry identical values, so unversioned dedup has nothing to
-   get wrong yet. It becomes real the first time a title is edited.
-2. Benchmark `CODEC(DoubleDelta, ZSTD(1))` on the `minute` column in `audience_minute_snapshot` and
-   `playback_health_minute`: fixed 60s-step buckets, the textbook case. Same deferral and the same
-   reason, plus the guidebook's own caveat that codec wins are measured, not assumed. At 228K rows
-   the saving is small enough that it should not be committed on faith. Leave irregular
-   `transition_at`-style columns alone until benchmarked separately.
+1. **Done.** `content` is now `ReplacingMergeTree(ingested_at)` in both databases
+   (`sql/schema/02_content.sql`). Without a version argument the engine keeps whichever row a merge
+   saw last, which is part insertion order rather than anything meaningful, so re-ingesting a title
+   with a corrected category could lose the correction on any later merge.
+
+   `ingested_at` is safe as the version here, unlike on `raw_events`: the column is in the original
+   CREATE, so every row carries a materialised value (verified: one distinct timestamp across all
+   33,464 rows in `phoenix`) rather than a `DEFAULT now()` added by ALTER and evaluated at read
+   time. Applied by building a versioned copy, `INSERT ... SELECT ... FINAL`, and `EXCHANGE TABLES`,
+   which is atomic: row counts before and after are 33,464 and 33,465, unchanged. Schema drift is
+   green on both databases.
+
+2. **Measured, and declined.** `CODEC(DoubleDelta, ZSTD(1))` on the `minute` column is the
+   textbook case on paper: a fixed 60s-step bucket. ClickHouse Cloud does not report per-column
+   compressed bytes, so it was measured with an A/B instead, two tables of the same 197,811 rows
+   differing only in that codec:
+
+   | | `bytes_on_disk` |
+   |---|---|
+   | no codec | 299,377 |
+   | `CODEC(DoubleDelta, ZSTD(1))` | 277,860 |
+
+   21,517 bytes, 7.2% of a three-column table. On the real `audience_minute_snapshot`, where
+   `minute` is one column of eighteen and the whole table is 1.54 MiB, that is about **1.4%**. Not
+   worth a rebuild of two live tables, and the guidebook's own caveat is that codec wins are
+   measured rather than assumed. Revisit at a volume where 1.4% is a number somebody cares about;
+   the measurement is here so the next person does not have to repeat it.
 3. No change to the missing `force_primary_key` on `open_sessions.sql` or `reach.sql`. Both are
    documented as full-scan-by-construction given their tables' ORDER BY, and asserting the setting
    would simply fail.

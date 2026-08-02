@@ -14,5 +14,11 @@ CREATE TABLE IF NOT EXISTS content
     category   LowCardinality(String),
     ingested_at DateTime DEFAULT now()
 )
-ENGINE = ReplacingMergeTree
+-- VERSIONED ON ingested_at, not bare. Without a version argument ReplacingMergeTree keeps whichever
+-- row a merge happened to see last, which is part insertion order rather than anything meaningful,
+-- so re-ingesting a title with a corrected category could lose the correction on any later merge.
+-- Safe to use as the version here, unlike on raw_events: this column is in the original CREATE, so
+-- every row has a materialised value (verified: one distinct timestamp across all 33,464 rows in
+-- phoenix), rather than a DEFAULT now() added by ALTER and evaluated at read time.
+ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY content_id;
