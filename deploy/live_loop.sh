@@ -42,6 +42,12 @@ while true; do
     echo "=== DERIVE_TICK FAILED (exit $tick_rc) at $(date -u +%FT%TZ) ==="
     echo "$tick_out" | grep -iE "exception|code: [0-9]+|error" | head -5
     echo "$tick_out" | tail -20
+    # AND the script's own log. derive_tick.sh writes its verdict to derive_tick.<db>.log, not to
+    # stdout, so $tick_out is EMPTY for exactly the failures that matter: the invariant trips.
+    # Measured 2026-08-02 -- the loop printed "DERIVE_TICK FAILED (exit 1)" with a blank body every
+    # 80 seconds for seven hours while the one line that named the cause, "USER STAGE FAILED ...
+    # recon=250", sat in a file inside the container that nothing ever printed.
+    tail -3 "state/derive_tick.$DB.log" 2>/dev/null || tail -3 "derive_tick.$DB.log" 2>/dev/null
     echo "=== end derive_tick failure ==="
   fi
 

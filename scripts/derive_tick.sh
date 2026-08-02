@@ -25,7 +25,11 @@ OVERLAP_S="${OVERLAP_S:-120}"
 WM_DIR="${DERIVE_STATE_DIR:-.}"
 mkdir -p "$WM_DIR"
 WM_FILE="$WM_DIR/.derive_watermark.$DB"
-LOG="derive_tick.$DB.log"
+# Beside the watermark, not in the CWD. In the deployed stack the CWD is the container's ephemeral
+# /app, so this log -- the only place the tick records WHY it failed -- died with the container and
+# was invisible from the host, while the stale host-side copy in the repo root looked authoritative
+# and was seven hours out of date. WM_DIR is the mounted volume, so the two now live together.
+LOG="$WM_DIR/derive_tick.$DB.log"
 
 exec 9>"$WM_FILE.lock"
 flock 9
@@ -92,9 +96,13 @@ fi
 # plus the boundary minute, and full-outer-joins them against what is stored. Any disagreement is
 # a real divergence between the runs and the curve served from them.
 # Measured cost against the live corpus: 106-111 ms. Cheap enough to run every tick.
-_recon_sql() {  # $1 = runs table, $2 = deltas table, $3 = the runs table's identity column
+#
+# Split into a body and two projections over it. _recon_sql asks HOW BIG the divergence is, which
+# is the invariant; _recon_diff_sql asks WHERE it is, which is what the user-side healing pass
+# needs to locate its offenders. One body so the two can never drift apart and start disagreeing
+# about what a divergence is.
+_recon_body() {  # $1 = runs table, $2 = deltas table
   cat <<RECON
-SELECT ifNull(sum(abs(ifNull(a.d, 0) - ifNull(b.d, 0))), 0)
 FROM (
     SELECT platform, country, video_type, content_id, app_version,
            audio_language, subtitle_language, player_version, video_resolution,
@@ -125,6 +133,20 @@ FULL OUTER JOIN (
 USING (platform, country, video_type, content_id, app_version,
        audio_language, subtitle_language, player_version, video_resolution, minute)
 RECON
+}
+
+_recon_sql() {  # $1 = runs table, $2 = deltas table
+  echo "SELECT ifNull(sum(abs(ifNull(a.d, 0) - ifNull(b.d, 0))), 0)"
+  _recon_body "$1" "$2"
+}
+
+# The minutes the two sides disagree about. Hardcoded to the user tables because only the user
+# stage heals from a recon failure: the session stage's failures are doubles and negatives, which
+# it locates from sum(sign) directly.
+_recon_diff_sql() {
+  echo "SELECT minute FROM (SELECT minute, ifNull(a.d, 0) AS ad, ifNull(b.d, 0) AS bd"
+  _recon_body user_minute_runs user_concurrency_deltas
+  echo ") WHERE ad != bd"
 }
 
 t0=$(date +%s)
@@ -192,18 +214,101 @@ if [ "$closure" = "0" ] && [ "$dupes" = "1" ] && [ "$negs" = "0" ]; then
     --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
     --queries-file sql/pipeline/01b_derive_intervals_incremental.sql
 
-  CHT --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
-    --queries-file sql/pipeline/04c_merge_user_runs_atomic.sql
-  uclosure="$(val "SELECT sum(delta) FROM user_concurrency_deltas")"
-  # HAVING s != 0, not s > 0. The old form filtered negatives out BEFORE max(), so a stranded
-  # negative on the user side could never register no matter how bad it got.
-  udupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM user_minute_runs GROUP BY user_id, run_start, run_end HAVING s != 0)")"
-  # The user side had no negatives check at all; the session side has had one since the retract
-  # was made self-healing. Same failure, same detection.
-  unegs="$(val "SELECT countIf(s < 0) FROM (SELECT sum(sign) AS s FROM user_minute_runs GROUP BY user_id, run_start, run_end)")"
-  urecon="$(val "$(_recon_sql user_minute_runs user_concurrency_deltas)")"
-  if [ "$uclosure" != "0" ] || [ "$udupes" != "1" ] || [ "$unegs" != "0" ] || [ "$urecon" != "0" ]; then
-    echo "$(date -u +%FT%TZ) $DB USER STAGE FAILED: closure=$uclosure dupes=$udupes negatives=$unegs recon=$urecon" >>"$LOG"
+  _user_checks() {
+    uclosure="$(val "SELECT sum(delta) FROM user_concurrency_deltas")"
+    # HAVING s != 0, not s > 0. The old form filtered negatives out BEFORE max(), so a stranded
+    # negative on the user side could never register no matter how bad it got.
+    udupes="$(val "SELECT ifNull(max(s), 1) FROM (SELECT sum(sign) AS s FROM user_minute_runs GROUP BY user_id, run_start, run_end HAVING s != 0)")"
+    # The user side had no negatives check at all; the session side has had one since the retract
+    # was made self-healing. Same failure, same detection.
+    unegs="$(val "SELECT countIf(s < 0) FROM (SELECT sum(sign) AS s FROM user_minute_runs GROUP BY user_id, run_start, run_end)")"
+    urecon="$(val "$(_recon_sql user_minute_runs user_concurrency_deltas)")"
+  }
+  _user_ok() { [ "$uclosure" = "0" ] && [ "$udupes" = "1" ] && [ "$unegs" = "0" ] && [ "$urecon" = "0" ]; }
+
+  # UP TO TWO PASSES, for the reason the session stage takes two at line 137. Until this loop
+  # existed the user stage was evaluated exactly once and exited 1 on the first disagreement,
+  # which is why the ticker sat unhealthy: the watermark is written at the END of this script, so
+  # one transient user-side failure pinned from_ts forever and every subsequent tick re-derived
+  # the same widening window.
+  #
+  # This absorbs the transient case only. The failure that exposed the missing loop was NOT
+  # transient, and the compensating pass below is what actually heals it.
+  for uattempt in 1 2; do
+    CHT --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
+      --queries-file sql/pipeline/04c_merge_user_runs_atomic.sql
+    _user_checks
+    _user_ok && break
+    echo "$(date -u +%FT%TZ) $DB user attempt $uattempt tripped invariants: closure=$uclosure dupes=$udupes negatives=$unegs recon=$urecon, retrying same window" >>"$LOG"
+  done
+
+  # HEALING PASS, the user-side twin of line 153. The retry above re-derives the SAME window, so
+  # it only heals a divergence whose users are still in that window. The checks are global, so a
+  # user who has gone quiet is outside every future window and would fail every tick forever.
+  #
+  # The session side finds its offenders from sum(sign), which works there because its failures
+  # are doubles and negatives. A recon failure carries no such marker: the runs and the deltas
+  # each net correctly on their own and disagree only about WHICH key the value belongs to. So
+  # the offenders are located by the disagreement itself: take the minutes where the two sides
+  # differ, widen to the sessions covering them, and re-derive those users' own event range.
+  if ! _user_ok; then
+    heal_range="$(val "SELECT concat(toString(min(event_timestamp)), '|', toString(max(event_timestamp) + INTERVAL 1 SECOND))
+      FROM raw_events WHERE user_id IN (
+        SELECT user_id FROM user_minute_runs
+        WHERE run_end >= (SELECT min(minute) - INTERVAL 1 MINUTE FROM ($(_recon_diff_sql)))
+          AND run_start <= (SELECT max(minute) FROM ($(_recon_diff_sql)))
+        GROUP BY user_id HAVING sum(sign) != 0)")"
+    heal_from="${heal_range%%|*}"; heal_to="${heal_range##*|}"
+    if [ -n "$heal_from" ] && [ "$heal_from" != "|" ]; then
+      echo "$(date -u +%FT%TZ) $DB user healing pass over offender range $heal_from -> $heal_to" >>"$LOG"
+      CHT --param_from_ts="$heal_from" --param_to_ts="$heal_to" \
+        --queries-file sql/pipeline/04c_merge_user_runs_atomic.sql
+      _user_checks
+    fi
+  fi
+
+  # COMPENSATING PASS. Re-deriving cannot fix a recon failure, and this is measured, not argued:
+  # on phoenix_live 2026-08-02 the two retries and the healing pass above left recon at exactly
+  # 476, unchanged, three times over.
+  #
+  # The reason is the one 03b's header already names. 04c's retract branch emits inverses for
+  # groups it can still SEE in user_minute_runs. Once CollapsingMergeTree has physically cancelled
+  # a +1/-1 pair on merge, the row is gone, so a delta written from it has nothing left to retract
+  # it and no window can ever reach it again. 03b calls the equivalent session-side state
+  # "unreachable forever". It is unreachable by re-derivation; it is not unreachable by
+  # subtraction.
+  #
+  # user_minute_runs is the source of truth and user_concurrency_deltas is a SummingMergeTree
+  # derived from it, so the repair is to insert the difference and let the engine sum it away.
+  # This is the ONLY step here that writes a correction rather than a derivation, so it is gated
+  # on the other three invariants holding: a divergence accompanied by a broken closure, a double
+  # or a negative is a live pipeline fault, and papering over it with a compensating row would
+  # destroy the evidence instead of the divergence.
+  #
+  # Measured shape of what it repairs: 344 disagreeing (dimensions, minute) keys, ZERO of which
+  # existed on only one side, both sides summing to the SAME -1642. Same-minute pairs differing by
+  # content_id or app_version: value in the wrong key, nothing missing. per_user in 04c takes each
+  # user's dimensions from argMin(dim, run_start), so a late run that predates a user's current
+  # earliest one moves that user to a different key, which is how the two sides came to disagree
+  # about the key while agreeing about the total.
+  if ! _user_ok && [ "$uclosure" = "0" ] && [ "$udupes" = "1" ] && [ "$unegs" = "0" ]; then
+    echo "$(date -u +%FT%TZ) $DB user compensating pass: recon=$urecon unreachable by re-derivation" >>"$LOG"
+    CHT --query "INSERT INTO user_concurrency_deltas
+      (platform, country, video_type, content_id, app_version,
+       audio_language, subtitle_language, player_version, video_resolution, minute, delta)
+    SELECT platform, country, video_type, content_id, app_version,
+           audio_language, subtitle_language, player_version, video_resolution,
+           minute, toInt32(ad - bd) AS delta
+    FROM (SELECT platform, country, video_type, content_id, app_version,
+                 audio_language, subtitle_language, player_version, video_resolution,
+                 minute, ifNull(a.d, 0) AS ad, ifNull(b.d, 0) AS bd
+    $(_recon_body user_minute_runs user_concurrency_deltas)
+    ) WHERE ad != bd"
+    _user_checks
+  fi
+
+  if ! _user_ok; then
+    echo "$(date -u +%FT%TZ) $DB USER STAGE FAILED after retry, healing and compensating passes: closure=$uclosure dupes=$udupes negatives=$unegs recon=$urecon" >>"$LOG"
     exit 1
   fi
 fi

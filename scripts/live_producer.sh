@@ -324,6 +324,18 @@ while :; do
     tot_alive=$(( tot_alive + new_hi - new_lo ))
   done
 
+  # NOTHING TO EMIT IS NOT AN ERROR. Every branch above is conditional, so a cycle where no stream
+  # arrives, departs or heartbeats leaves $BRANCHES empty -- and the heredoc below then emits a
+  # bare WITH clause with no SELECT after it. Measured 2026-08-02: once the population reached
+  # zero, every cycle failed with "Code: 62 Syntax error: failed at position 1644 (end of query)",
+  # burned its three retries, logged "population held, next cycle will catch up", and held a
+  # population of zero -- so the next cycle was identical. Ingest stopped for good while the
+  # container stayed up and the log scrolled. Skip the cycle instead.
+  # Skips the INSERT only. NOT `continue`: that would jump past save_state and the period sleep,
+  # turning a quiet cycle into a hot loop.
+  emit=1
+  [ -z "${BRANCHES// }" ] && emit=0
+
   # ONE statement, all fifteen streams, all five event classes.
   # Written to a file rather than passed as argv. Even hoisted, a 15-stream statement is tens of
   # kilobytes, and --query puts that in the argument list where it competes with the environment
@@ -365,8 +377,9 @@ SQL
   # done: measured p50 53,972 rows per statement, inside the 10K-100K band insert-batch-size asks
   # for, at one statement per 30s. Async would buffer an already correctly-sized batch, adding a
   # copy and a flush delay to solve a problem this producer does not have.
-  ok=0
+  ok="$emit"
   for attempt in 1 2 3; do
+    [ "$emit" = "0" ] && { echo "  cycle $c no events to emit, insert skipped" >&2; break; }
     if chw --connect_timeout=30 --receive_timeout=120 --queries-file "$SQLFILE"; then
       ok=1; break
     fi

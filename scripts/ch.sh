@@ -49,3 +49,11 @@ exec clickhouse client \
   --database "${CH_DATABASE:-default}" \
   "${_frozen[@]}" \
   --session_timezone UTC "$@"   # local runs are Asia/Kolkata, the service is UTC: pin both
+# NOT setting deduplicate_blocks_in_dependent_materialized_views=1, deliberately, having tried it.
+# The default 0 deduplicates a repeated INSERT block at the SOURCE table while still pushing it
+# through every dependent MV, which looked like the explanation for user_minute_runs and
+# user_concurrency_deltas disagreeing on 2026-08-02 while two derive loops ran at once. It is not:
+# the divergence recurred on the very next tick with a single writer. Turning it on would add the
+# mirror-image failure -- two different source blocks can yield one identical MV block, which the
+# MV would then drop, leaving deltas SHORT -- to fix a cause that is not the cause. The tick's
+# healing and compensating passes absorb the drift; one writer per database prevents it.
