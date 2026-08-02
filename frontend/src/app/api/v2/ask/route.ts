@@ -1,10 +1,11 @@
-// Ask AI for the v1 concurrency console, pinned to the graded `phoenix` database.
+// Ask AI for the v2 insight console, pinned to `phoenix_next`.
 //
-// The handler is thin on purpose: validation, the system prompt, the database pin and the rate
-// limit all live in lib/ask.ts, which /api/v2/ask uses too. Two consoles asking two questions of
-// two databases is a difference of one constant, and everything that makes this safe is shared.
+// Same handler shape as /api/ask and deliberately so: the only difference between the two consoles'
+// assistants is which database they may read and which tables they should reach for first, and both
+// of those are one constant in lib/ask.ts. Keeping the scope out of the request body is the point.
+// If the console could name its own database, so could anything that got a message into the thread.
 import {NextRequest, NextResponse} from 'next/server'
-import {askAgent, askConfigError, V1_SCOPE, validateThread, withinRateLimit} from '@/lib/ask'
+import {askAgent, askConfigError, V2_SCOPE, validateThread, withinRateLimit} from '@/lib/ask'
 import type {AskResponse, ApiError} from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<AskResponse |
   if (configError) return NextResponse.json({error: configError}, {status: 400})
 
   try {
-    return NextResponse.json(await askAgent(V1_SCOPE, check.messages))
+    return NextResponse.json(await askAgent(V2_SCOPE, check.messages))
   } catch (e) {
     const message =
       e instanceof Error && e.name === 'AbortError' ? 'LibreChat agent timed out' : (e as Error).message

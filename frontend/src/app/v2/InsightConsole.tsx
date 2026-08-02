@@ -3,6 +3,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import type {ClientFilters, DimensionValue, InsightStatusResponse, InsightTableResponse} from '@/lib/types'
 import {istDateTime} from '@/lib/time'
+import AskAI from '@/components/AskAI'
 import QueryPanel from '@/components/QueryPanel'
 import styles from './console.module.css'
 
@@ -19,6 +20,9 @@ const VIEWS = [
   {id: 'handoff', label: 'Device handoff', blurb: 'one person, or two screens'},
   {id: 'forecast', label: 'Forecast', blurb: 'next 15 min, with its error band'},
   {id: 'lateness', label: 'Data quality', blurb: 'what arrived after we answered'},
+  // Not an insight table: the open-ended question the ten fixed views cannot answer. Last in the
+  // list because it is the fallback, and it is the one tab that costs an LLM round trip.
+  {id: 'ask', label: 'Ask AI', blurb: 'anything the ten views do not cover'},
 ] as const
 
 type ViewId = (typeof VIEWS)[number]['id']
@@ -227,6 +231,9 @@ export default function InsightConsole() {
   }, [])
 
   const load = useCallback((id: ViewId, r: RangeId, rawLatest: string | null, f: ClientFilters) => {
+    // 'ask' has no serving query behind it. Fetching /api/v2/insight/ask would 404 against the
+    // route's closed registry, which is the registry working, not a bug to route around.
+    if (id === 'ask') { setData(null); setError(null); setLoading(false); return }
     setLoading(true)
     setData(null)
     const {from, to} = windowFor(r, rawLatest)
@@ -413,6 +420,8 @@ export default function InsightConsole() {
           </div>
         )}
 
+        {view === 'ask' && <AskAI endpoint="/api/v2/ask" reads="phoenix_next"/>}
+
         {error && <p className={styles.error}>{error}</p>}
 
         {data && (
@@ -443,7 +452,7 @@ export default function InsightConsole() {
           </section>
         )}
 
-        {loading && <p className={styles.loading}>reading {view}...</p>}
+        {loading && view !== 'ask' && <p className={styles.loading}>reading {view}...</p>}
       </main>
     </>
   )
