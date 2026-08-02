@@ -52,14 +52,39 @@ are holding.
 
 ## The databases
 
-| Database | What it is | Contains |
+Updated 2026-08-02, when the unseen day arrived with two new columns and the dimension set was
+widened from five to nine. The two databases the product reads are `phoenix_live` and
+`phoenix_unseen`; everything else is history kept deliberately.
+
+| Database | What it is | Read by |
 |---|---|---|
-| `phoenix` | Generation one. The validated concurrency engine, and the database the live demo ingests into. Every figure in `evidence/` was measured here | 15 objects, the full concurrency model |
-| `phoenix_next` | Generation two. A complete copy of the concurrency model plus the insight layer built on top of it | 21 objects, concurrency model plus 6 insight tables |
+| `phoenix_live` | **Generation three, live.** Concurrency model plus all ten insight tables, on the widened nine-dimension key. Continuously ingested by the `producer` container and derived by the `ticker` container | v2, and v1's "Original corpus" switch position |
+| `phoenix_unseen` | **The unseen day.** 7,000,000 events for 2026-07-31, same widened schema, static by intent because these are the graded answers and must not move while being read | v1's "Unseen day" switch position, and v2 when switched |
+| `phoenix` | Generation one, the originally validated engine. Untouched by the widening. Every figure in `evidence/` written before 2026-08-02 was measured here | nothing; kept for reproducibility |
+| `phoenix_next` | Generation two, pre-widening. Five-dimension key | nothing; kept as rollback |
+| `phoenix_unseen_pre_widen` | The unseen day on the five-dimension key, before the widening | nothing; kept as rollback |
+| `phoenix_widen_full`, `phoenix_widen_test` | Scratch databases used to PROVE the widening changed no answer, before it was promoted | nothing; kept as the evidence trail |
 | `phoenix_schema_ref` | An empty reference database rebuilt from the DDL files by `scripts/check_docs.sh` to detect drift | No data, ever |
 
-Insight tables exist **only** in `phoenix_next`. Concurrency tables exist in both and carry
-independent data, because each database ingests its own stream.
+Insight tables exist in `phoenix_live` and `phoenix_unseen`. They do **not** exist in `phoenix`.
+
+### Live sizes, measured 2026-08-02
+
+| Table | `phoenix_live` | `phoenix_unseen` |
+|---|---|---|
+| `raw_events` | 1,161,922 rows, 6.19 MiB | 7,000,000 rows, 29.18 MiB |
+| `content` | 41,144 rows, 337.96 KiB | 33,326 rows, 270.99 KiB |
+| `foreground_intervals` | 652,549 rows, 3.05 MiB | 4,647,950 rows, 23.63 MiB |
+| `session_minute_runs` | 90,399 rows, 1.18 MiB | 118,498 rows, 7.74 MiB |
+| `concurrency_deltas` | 32,605 rows, 94.33 KiB | 133,784 rows, **463.14 KiB** |
+| `user_concurrency_deltas` | 31,167 rows, 90.58 KiB | 119,337 rows, 425.30 KiB |
+| `concurrency_boundary_deltas` | 74,475 rows, 217.07 KiB | 298,048 rows, 1.39 MiB |
+
+`phoenix_live` moves: it is under continuous ingest, so these numbers are a snapshot, not a
+constant. `phoenix_unseen` is static and these are reproducible.
+
+**The headline compression still holds at 14x the data.** 7,000,000 raw events, 29.18 MiB on disk,
+collapse to a 463 KiB serving table. Cost tracks interval boundaries, not watch time.
 
 ---
 
@@ -216,8 +241,9 @@ mid-view and one row has to pick.
 ### `concurrency_deltas` — what the dashboard reads
 
 `SharedSummingMergeTree(delta)`,
-`ORDER BY (platform, country, video_type, content_id, app_version, minute)`.
-**36,649 physical rows** over **1,561 distinct minutes**, 113.58 KiB.
+`ORDER BY (platform, country, video_type, content_id, app_version, audio_language,
+subtitle_language, player_version, video_resolution, minute)`.
+On the unseen day: **133,784 physical rows**, 463.14 KiB.
 
 Each active run contributes `+1` at its first minute and `-1` at the minute after its last.
 Concurrency at any minute is the running sum of every delta up to and including it.
@@ -227,6 +253,8 @@ Concurrency at any minute is the running sum of every delta up to and including 
 | `platform`, `country`, `video_type` | `LowCardinality(String)` | Filter dimensions, and the ordering-key prefix |
 | `content_id` | `Int64` | Filter dimension |
 | `app_version` | `LowCardinality(String)` | Filter dimension |
+| `audio_language`, `subtitle_language`, `player_version` | `LowCardinality(String)` | Filter dimensions, added 2026-08-02 |
+| `video_resolution` | `LowCardinality(String)` | Filter dimension, **new column on the unseen day**. Values are free-form and fuse a quality mode with a pixel size (`1920*1080`, `Auto-1280*720`, `DataSaver-640x360`, `NA`); 2,071 distinct in `raw_events`, 706 in the delta table. Stored VERBATIM, never normalised, because a normalisation changes which rows a filter selects and therefore the graded answer |
 | `minute` | `DateTime` | Minute bucket, UTC |
 | `delta` | `Int32` | Net change in concurrency at that minute for that dimension tuple |
 
@@ -235,6 +263,19 @@ requested window, so a time predicate cannot prune it: starting the sum inside t
 every session that opened earlier and is still watching. What *can* prune is a dimension filter,
 so the dimensions occupy the prunable prefix. A `platform` filter cuts the read to 2 of 4 granules
 and 16,384 rows where unfiltered reads 30,662.
+
+**Why the four new dimensions were APPENDED rather than sorted in by cardinality, and what that
+costs.** The first five columns are the prefix every existing filter prunes on and every published
+read figure was measured against. Inserting `video_resolution` (2,071 distinct in raw_events, 706 in the delta table) mid-key would have
+silently changed what a `platform` filter prunes, and a headline number would have moved for a
+reason no reader could see.
+
+The cost is real and is stated rather than hidden: **a filter on a suffix dimension alone prunes
+almost nothing.** Measured through the deployed API on the unseen day, unfiltered reads 354,305
+rows and filtering by `video_resolution` reads 354,185. Prefix filters prune; suffix filters do
+not. Combining a prefix filter with a suffix one does prune, because the prefix still engages.
+Addressing this properly is a filter-key structure (a projection or a second differently-keyed
+serving table), which is under review rather than assumed.
 
 **How to query it correctly.** Seed the cumulative sum from before the window. A session that
 opened at 09:00 and is still watching at 10:30 must count in a 10:00 window and contributes no

@@ -1,80 +1,121 @@
-# phoenix-concurrency
+# The Phoenix
 
-**Team: The Phoenix** · ClickHouse Click-a-thon 2026 · SonyLIV track
+## Track
 
-## The problem
+SonyLIV
 
-Design a scalable concurrency computation model on top of one or more aggregated tables
-(session-aware or session-independent) that uses session start/end along with heartbeat or
-active-state signals to count only **truly active** playback intervals, excluding backgrounded
-periods, while remaining query-efficient and update-friendly at very large scale.
+## Project
 
-Counting overlapping sessions overstates the audience: a session can be open while the app is
-backgrounded, the player is paused, or the heartbeat has stopped arriving. The unit of truth is
-the active interval inside the session, not the session.
+**Phoenix Concurrency**: foreground-only concurrency at streaming scale: counting only the
+audience that is actually watching, and proving it.
 
-Constraints that shape every decision:
+## Team Members
 
-- **ClickHouse is the primary datastore and engine.** Ingestion, modelling, and all concurrency
-  computation live there.
-- **Peak is per dimension combination.** A platform slice and a platform+country slice peak at
-  different minutes inside the same range.
-- **Update-friendly.** Open sessions keep growing as heartbeats land, and late events arrive
-  after the fact. Absorbing them must be incremental, never a rebuild.
-- **Must meaningfully integrate one of** ClickStack, Langfuse, or LibreChat.
-- **The unseen day.** A fresh day of data drops in the final hours. Reloading is one command
-  (`./scripts/load.sh <file> <table>`), not an improvised pipeline at hour 22.
+<!-- SUBMISSION BLOCKER: fill in before opening the PR. One line per member.
+     Format required by the root README: `- Name (GitHub handle)` -->
 
-Full statement: [`docs/problem/PROBLEM_STATEMENT.md`](docs/problem/PROBLEM_STATEMENT.md).
-Data dictionary: [`docs/problem/dataset_details.md`](docs/problem/dataset_details.md).
-Submission rules: [`docs/problem/SONYLIV_SUBMISSION_GUIDELINES.md`](docs/problem/SONYLIV_SUBMISSION_GUIDELINES.md).
+- _Name_ (_@handle_)
 
-## What we solved
+## What it does
 
-| The question | What answers it | The result |
-|---|---|---|
-| What is an active interval when the heartbeat is missing, the player is paused, or the app is backgrounded? | A three-bucket state machine, unknown values neutral, 90s gap tolerance: `sql/schema/03_event_state.sql` | Naive session-span counting reports **9,942** concurrent where foreground-only counting reports **7,576**: a **31% overcount** removed |
-| How should active ranges be represented? | Normalized intervals, to per-session minute runs, to `+1`/`-1` minute deltas | 232 MB of CSV becomes a **61 KiB** serving table; a three-hour session costs the same two rows as a two-minute one |
-| How do you get minute-wise peak and average without scanning raw session history? | A seeded cumulative sum over the delta table: `sql/queries/serving/concurrency_curve.sql`, `peak_average.sql` | Peak and average are derived per request, never pre-stored per rollup, because a platform slice and a platform+country slice peak at different minutes |
-| How does it stay filter-friendly? | The same queries, parameterised on all six dimensions, pruning granules on the serving table's own sort key | A platform filter prunes to **16,384 rows, 2 of 4 granules** |
-| How are open sessions handled? | Retract-and-re-assert on a CollapsingMergeTree, plus an explicit open-session view | Absorbing new heartbeats is incremental. A rebuild is never needed, and what is still revisable is stated on screen rather than hidden |
-| Does it hold on data nobody tuned on? | One command reloads a fresh day: `./scripts/load.sh <file> <table>` | [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) |
+Concurrency looks like interval overlap and is not. A session can be open while the app is
+backgrounded, the player is paused, or the heartbeat has simply stopped arriving. Counting that
+time overstates the audience, and every decision made on the dashboard inherits the error.
 
-**Beyond the ask.** A second generation, `phoenix_next`, turns the curve into an explanation:
-ten insight views covering why concurrency moved, whether the audience it gained stayed, which
-app version loses viewers, which content takes whose audience, which device hands off to which,
-and what arrived late enough to change an answer already given. Each is one purpose-built table
-and one committed query, gated on parity against ground truth and on what it reads.
+Phoenix models the **active interval inside the session** rather than the session, and serves peak
+and average concurrency at minute, hour and day grain, filtered across the dataset's dimensions,
+from a pre-aggregated delta table that never rescans raw history.
 
-**The OSS integration is ClickStack**, not a badge: HyperDX and the OpenTelemetry collector
-running against our own ClickHouse Cloud service, with a live dashboard on `concurrency_deltas`
-and a read-budget panel built from `system.query_log`. Both consoles link to it.
-[`docs/clickstack.md`](docs/clickstack.md).
+On the graded corpus, naive session-span counting reports **9,942** concurrent where foreground-only
+counting reports **7,576**. That **31 percent** is the entire problem, removed and measured.
 
-**Nothing here is quoted from memory.** Every number above resolves through
+The numbers are not asserted. Every figure in this README resolves through
 [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) to the command that produced it and the artifact it
-wrote. `./scripts/check_docs.sh` fails the build when a claim and its evidence disagree.
+wrote, and `./scripts/check_docs.sh` fails the build when a claim and its evidence disagree.
 
-## The product
+## Hosted Demo
 
-Two consoles, one design system, both reading ClickHouse directly.
+**http://the-phoenix.cricheroes.io**
 
-| Route | Reads | What it is for |
-|---|---|---|
-| `/` | `phoenix` | The concurrency curve: sessions and users, peak, both averages, p95, reach, open sessions, and the naive-versus-corrected divergence |
-| `/v2` | `phoenix_next` | Ten insight views over the audience-intelligence layer |
+`/` is the concurrency console, `/v2` the insight console.
 
-Both print the ClickHouse query that produced what is on screen, with the table it read, rows
-read, bytes read, server time and wall time underneath. The guidelines ask for the query
-alongside the curve because the modelling is what is being judged; the text shown is read from
-the shipped `.sql` file at request time, so it cannot drift from what executed.
+## Demo Video
+
+<!-- SUBMISSION BLOCKER: mandatory, 2 to 3 minutes, must show the curve and filters working
+     live and the LibreChat chat flow end to end. -->
+
+_Pending._
 
 ## Architecture
 
-Events become foreground intervals, intervals merge into per-session minute runs, runs emit
-`+1` / `-1` deltas, and a cumulative sum over the deltas is the concurrency curve. Cost tracks
-interval boundaries rather than watch time, so a three-hour session costs the same two rows as
-a two-minute one, and 232 MB of CSV becomes a **61 KiB** serving table.
+### High-level design
+
+Four planes. Ingest lands raw events and never serves them; the derivation plane turns events into
+intervals, runs and deltas; the serving plane answers every dashboard question off a 61 KiB table;
+the interface plane is two consoles plus a conversational layer that reaches ClickHouse through the
+MCP server rather than through us.
+
+```mermaid
+flowchart TB
+    subgraph INGEST["Ingest plane"]
+        CSV["Session CSV<br/>bulk or replayed"]
+        PROD["live_producer.sh<br/>continuous arrivals"]
+        LAND["raw_events_landing<br/>ENGINE = Null"]
+        CSV --> LAND
+        PROD --> LAND
+    end
+
+    subgraph CH["ClickHouse Cloud, ap-south-1 -- primary datastore and engine"]
+        RAW[("raw_events<br/>append-only truth")]
+        subgraph DERIVE["Derivation plane"]
+            ST{{"event_state<br/>3-bucket state machine"}}
+            FI[("foreground_intervals")]
+            SMR[("session_minute_runs<br/>Collapsing")]
+        end
+        subgraph SERVE["Serving plane"]
+            CD[("concurrency_deltas<br/>61 KiB")]
+            UCD[("user_concurrency_deltas")]
+            BD[("concurrency_boundary_deltas<br/>second-resolution")]
+            INS[("10 insight tables<br/>phoenix_live")]
+        end
+        LAND -->|MV| RAW --> ST --> FI --> SMR
+        SMR -->|MV| CD
+        SMR --> UCD
+        FI -->|MV| BD
+        RAW --> INS
+        ST -.->|watermark tick:<br/>retract + re-assert| SMR
+    end
+
+    subgraph UI["Interface plane"]
+        V1["/ concurrency console"]
+        V2["/v2 insight console"]
+        LC["LibreChat agent"]
+    end
+
+    CD --> V1
+    UCD --> V1
+    BD --> V1
+    INS --> V2
+    MCP["mcp-clickhouse<br/>read-only phoenix_ask user"] --> CH
+    LC --> MCP
+    V1 -.-> LC
+    V2 -.-> LC
+```
+
+**Why deltas.** Cost tracks interval boundaries, not watch time. A three-hour session costs the
+same two rows as a two-minute one, which is what makes 232 MB of CSV collapse to a **61 KiB**
+serving table and what makes the design survive the 100x question.
+
+**Why peak is computed, never stored.** A platform slice and a platform-plus-country slice peak at
+different minutes inside the same range, so a pre-rolled peak per dimension is wrong by
+construction. [`test_peak_is_not_a_rollup.sql`](sql/queries/serving/test_peak_is_not_a_rollup.sql)
+is the regression test for exactly that.
+
+**Why open sessions do not need a rebuild.** `session_minute_runs` is a CollapsingMergeTree, so a
+session whose active range grew is retracted and re-asserted by a watermark-driven tick. Absorbing
+new heartbeats is incremental.
+
+### Data flow, table by table
 
 ```mermaid
 flowchart LR
@@ -91,130 +132,200 @@ flowchart LR
     Q --> D["dashboard"]
 ```
 
-Full reasoning, with the measured cost of every choice, in
-[`docs/problem/DESIGN.md`](docs/problem/DESIGN.md). Table-by-table detail in
+Full reasoning with the measured cost of every choice:
+[`docs/problem/DESIGN.md`](docs/problem/DESIGN.md). Table detail:
 [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
-
-### Filters, and the dataset column behind each
-
-The submission guidelines ask which dataset columns back the filters. Every one of these is carried
-into the serving table itself, so filtering prunes granules rather than post-filtering a result.
-
-| Filter in the UI | Dataset column | Where it lives at serving time | Applies to |
-|---|---|---|---|
-| Platform | `platform` (raw event) | `concurrency_deltas`, `user_concurrency_deltas`, `audience_minute_snapshot` | curve, peak/average, all v2 views whose table carries it |
-| Country | `country` (raw event) | same | same |
-| Video type | `video_type` (content metadata) | same, denormalised at derive time | same |
-| App version | `app_version` (raw event) | same | same |
-| Content | `title` -> `content_id` (content metadata) | `content` resolves the title, `content_id` prunes the delta table | same |
-| Time window + grain | `event_timestamp` (raw event) | `minute` in every serving table | curve, peak/average, every v2 view |
-
-Content is filtered **by title, never by id**: thousands of content ids reach the serving layer and
-nobody filtering a dashboard knows which eight-digit number is which show. The title is resolved
-against `content` (`sql/schema/02_content.sql`), which is why a new `content_id` needs a `content`
-row before its events arrive: see [`docs/INGEST_COMMANDS.md`](docs/INGEST_COMMANDS.md) section 0.
-
-Two documented dataset dimensions are deliberately **not** exposed. `subtitle_language` is carried
-in `raw_events` but not denormalised into the serving tables, and `category` is in `content` but is
-not a concurrency dimension anyone asked a question about. Adding either means a column on the
-delta tables and a re-derive, not a UI change.
-
-Not every v2 insight table carries every dimension: `concurrency_spike_events` is aggregated per
-spike, and `late_event_audit` carries the event and its timing rather than the session's dimensions
-(joining back for them would put `raw_events` in the plan, which the read-budget gate forbids). The
-v2 console disables the controls a view cannot honour and names the table that lacks the column,
-rather than accepting a filter and quietly dropping it. `docs/SUBMISSION_COMPLIANCE.md` has the
-per-view matrix.
 
 ### The queries behind the curve
 
-Included per the guidelines, since the modelling is the thing being judged rather than the chart:
-[`sql/queries/serving/concurrency_curve.sql`](sql/queries/serving/concurrency_curve.sql) (sessions),
-[`user_concurrency_curve.sql`](sql/queries/serving/user_concurrency_curve.sql) (distinct users), and
+Included because the guidelines ask for the modelling, not the chart:
+[`concurrency_curve.sql`](sql/queries/serving/concurrency_curve.sql) (sessions),
+[`user_concurrency_curve.sql`](sql/queries/serving/user_concurrency_curve.sql) (distinct users),
 [`peak_average.sql`](sql/queries/serving/peak_average.sql) (peak plus both averages, at any grain).
-Both consoles print the file they ran, the table it read and its row count under every answer.
+
+Both consoles print the query that produced what is on screen, with the table it read, rows read,
+bytes read and server time underneath. The text is read from the shipped `.sql` file at request
+time, so it cannot drift from what executed.
+
+### Filters, and the dataset column behind each
+
+Guideline 2 asks which dataset column backs each filter. Every one below is carried into the
+serving table itself, so filtering prunes granules rather than post-filtering a result.
+
+| Filter in the UI | Dataset column | Where it lives at serving time |
+|---|---|---|
+| Platform | `platform` (raw event) | `concurrency_deltas`, `user_concurrency_deltas`, `audience_minute_snapshot` |
+| Country | `country` (raw event) | same |
+| Video type | `video_type` (content metadata) | same, denormalised at derive time |
+| App version | `app_version` (raw event) | same |
+| Content | `title` resolves to `content_id` (content metadata) | `content` resolves the title, `content_id` prunes the delta table |
+| Time window and grain | `event_timestamp` (raw event) | `minute` in every serving table |
+| Dataset | n/a, selects the database server-side from a closed allowlist | `phoenix_live` versus `phoenix_unseen` |
+
+Content is filtered **by title, never by id**: nobody filtering a dashboard knows which eight-digit
+number is which show. A new `content_id` therefore needs a `content` row before its events arrive
+(see [`docs/INGEST_COMMANDS.md`](docs/INGEST_COMMANDS.md) section 0).
+
+| Audio language | `audio_language` (raw event) | `concurrency_deltas`, `user_concurrency_deltas` |
+| Subtitle language | `subtitle_language` (raw event) | same |
+| Player version | `player_version` (raw event) | same |
+| Video resolution | `video_resolution` (raw event, **new on the unseen day**) | same |
+
+All nine dataset dimensions are exposed and prune at the serving table. Two dataset columns are
+resolved through the content path rather than as their own control: `category` and the new
+`show_name` live on `content`, which the rail already uses to turn a title into a `content_id`.
+
+`video_resolution` needed a decision. Its values are free-form and fuse a quality mode with a pixel
+size (`1920*1080`, `1920 * 1080`, `Auto-1280*720`, `DataSaver-640x360`, `NA`): 2,071 distinct in
+`raw_events`, 706 once the delta table keeps one value per session. We store them VERBATIM and do
+not normalise, because a normalisation changes which rows a filter selects and therefore the answer
+being graded.
+
+Honest limit, measured: the four dimensions added on the unseen day sit at positions 6 to 9 of the
+sorting key, appended so the existing prefix and every published read figure stayed untouched. A
+filter on one of them alone would prune almost nothing, so `concurrency_deltas` carries a
+`p_suffix_first` PROJECTION that re-sorts those four to the front. It is auto-selected by the query
+analyzer, so no serving query references it: `video_resolution = '1920*1080'` reads 18,809 rows
+where it previously read 133,784.
+
+`video_resolution` deserves a note: the unseen day's values are free-form and fuse a quality mode
+with a pixel size (`1920*1080`, `1920 * 1080`, `Auto-1280*720`, `DataSaver-640x360`, `NA`).
+Measured cardinality is 2,071 raw and still 1,940 distinct pixel sizes after splitting the mode
+off, against 39 modes. We filter on the raw column verbatim rather than normalising, because a
+normalisation silently changes the answers being graded.
+
+Not every v2 insight table carries every dimension. The v2 console disables the controls a view
+cannot honour and names the table that lacks the column, rather than accepting a filter and quietly
+dropping it.
+
+## How we built it
+
+**Stack.** ClickHouse Cloud (`ap-south-1`) as the primary datastore and analytical engine, Next.js
+16 with the App Router and TypeScript for both consoles, LibreChat plus the ClickHouse MCP server
+for the conversational layer, Docker Compose and nginx for the deployment, bash for every pipeline
+and gate script.
+
+**The OSS integration is LibreChat**, which the problem statement accepts as one of the three. Ask
+AI on either console forwards a validated thread to a LibreChat agent holding a live
+`mcp-clickhouse` tool, connected as a read-only `phoenix_ask` user. Three things make it a boundary
+rather than a proxy: the database is **pinned per console** and never read from the request, the
+system turn is **built server-side** with client `system` roles stripped, and turn count, message
+length and total characters are **bounded**. The agent is handed the column-level schema inline,
+which trades about 1K tokens of fixed cost for the 22K-to-48K of discovery calls it would otherwise
+make. `./scripts/check_ask_guardrails.sh` asserts all of it.
+
+Users bring their own API key: the Ask panel takes one, holds it in tab state only, sends it as a
+header rather than a query parameter (query strings reach access logs and `system.query_log`, and
+we publish query_log extracts as evidence), and never stores or logs it.
+
+**Things worth knowing about the implementation:**
+
+- **Query text has exactly one home.** Route handlers read `.sql` files off disk at request time.
+  An earlier version inlined copies, they forked from a retired benchmark, and the dashboard shipped
+  a number 2.1x too high while the correct query sat unused in the repo.
+  `./scripts/check_query_sources.sh` makes that unrepeatable.
+- **An evidence ledger, not a claims list.** Every script writes a stamped TSV and a
+  `LEDGER.tsv` row, on failure paths too. `check_docs.sh` fails the build when a documented claim
+  has no artifact behind it.
+- **Correctness is reconcilable by construction.** `oracle_concurrency.sql` re-derives concurrency
+  from raw events by an independent path and matched the serving layer across **3,663 minutes with
+  0 differences**. The revised rubric says judges will spot-check against raw events; this is that
+  check, automated.
+- **We publish what we got wrong.** [`docs/corrections.md`](docs/corrections.md) lists every
+  restated figure. Peak was 2,829 and the average 88.20 until the end-bound fix removed 385
+  intervals running past their session's last `VideoSessionEnd`.
 
 ### Proven numbers
 
 Each links to a command and an artifact via [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv).
-Nothing here is quoted from memory.
 
 | Claim | Number | Reproduce |
 |---|---|---|
-| Peak concurrent sessions | **2,828** at 2026-07-26 10:56 | `./scripts/ground_state.sh` |
-| Average concurrency, all 1,440 minutes of that day | **88.06** | `./scripts/bench.sh` |
+| Peak concurrent sessions, graded corpus | **2,828** at 2026-07-26 10:56 | `./scripts/ground_state.sh` |
+| Average concurrency, all 1,440 minutes | **88.06** | `./scripts/bench.sh` |
 | Average concurrency, the 634 minutes with an audience | **200.00** | `./scripts/bench.sh` |
 | Naive session-span counting overstates peak by | **32.3 percent** | `./scripts/naive_baseline.sh` |
 | Minutes where naive invents an audience | 1,592 | `./scripts/naive_baseline.sh` |
-| Serving vs brute-force oracle | **3,663** minutes, **0 diffs**, both paths | `./scripts/parity.sh` |
+| Serving versus brute-force oracle | **3,663** minutes, **0 diffs** | `./scripts/parity.sh` |
 | Open sessions absorbed incrementally | 5,316 minutes, **0 diffs** | `./scripts/test_open_sessions.sh 30` |
-| Intervals extending past their session's last end | **0**, was 385 | `./scripts/rebuild_swap.sh` |
 | Full rebuild run twice, derived tables diffed | **0 diff lines**, 5 of 5 tables | `./scripts/prove_idempotence.sh` |
-| Frozen slice stable under concurrent writes | 34 metrics, **0 differing lines**, 2,528 rows ingested between runs | `./scripts/frozen_gate.sh 120` |
+| Frozen slice stable under concurrent writes | 34 metrics, **0 differing lines** | `./scripts/frozen_gate.sh 120` |
 | Worst-shape query reads | 30,662 rows in 12 ms, budget 80,712 | `./scripts/bench.sh` |
-| Platform filter prunes to | 16,384 rows, 2/4 granules | `./scripts/bench.sh` |
+| Platform filter prunes to | 16,384 rows, 2 of 4 granules | `./scripts/bench.sh` |
 | Full rebuild, CSV to verified serving layer | **70 seconds** | `./scripts/rehearse_runbook.sh` |
-| Data-quality invariants | 6 of 6 at required value | `./scripts/ground_state.sh` |
+| **Unseen day**, 7,000,000 events derived | **41 seconds**, all invariants PASS | `./scripts/derive.sh phoenix_unseen` |
+| **Unseen day**, peak concurrent sessions | **22,416** at 2026-07-31 11:16 | `./scripts/answers.sh` |
+| **Unseen day**, daily average over 1,440 minutes | **914.65** | `./scripts/answers.sh` |
 
-Peak was 2,829 and the average 88.20 until the end-bound fix (decision D8) removed 385 intervals
-that ran past their session's last `VideoSessionEnd`. Every restated figure is listed in
-[`docs/corrections.md`](docs/corrections.md).
+## How to run it
 
-## Documentation
-
-| Start here | |
-|---|---|
-| [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started, owners |
-| [`docs/GROUND_STATE.md`](docs/GROUND_STATE.md) | What is actually on the server, measured |
-| [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
-| [`docs/database_details.md`](docs/database_details.md) | The data dictionary: every database, table, column, and which one answers which question |
-| [`docs/CLICKHOUSE_RULES_AUDIT.md`](docs/CLICKHOUSE_RULES_AUDIT.md) | The concurrency schema against the 31 ClickHouse best-practice rules |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every modelling decision, its options, and what each cost |
-| [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Trade-offs, the filter-shape read table, the invariant audit |
-| [`docs/clickstack.md`](docs/clickstack.md) | The ClickStack integration, and how to rebuild it from nothing |
-| [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
-| [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) | Exact steps for the sealed drop, rehearsed |
-| [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) | Any claim to the command that produced it, in one hop |
-| [`docs/issues/`](docs/issues/) | Findings on ingest, which is a teammate's and untouched |
-
-## Layout
-
-```
-docs/problem/       problem statement + data dictionary (given, do not edit)
-docs/               STATUS.md first, then DECISIONS.md and corrections.md
-sql/schema/         DDL, one file per table
-sql/queries/serving/     the ONLY home for shipped query text
-sql/queries/validation/  oracle and data-quality queries
-sql/queries/known-wrong/ superseded queries, kept as regression fixtures
-docker/clickstack/  ClickStack compose file, see docs/clickstack.md
-scripts/            load.sh (CSV -> ClickHouse), profile.sh (dataset facts)
-frontend/           Next.js (App Router, TypeScript) dashboard, see frontend/README.md
-pitch/              slides and demo notes
-data/               gitignored, the CSVs never enter version control
-```
-
-## Getting started
+Needs the `clickhouse` binary on PATH (`curl https://clickhouse.com/ | sh`), Docker, and Node 20+.
 
 ```bash
 cp .env.example .env      # fill in from the ClickHouse Cloud console
-cp /path/to/*.csv data/
-./scripts/profile.sh data/ch-hackathon-raw-data.csv    # columns, row count, event types, span
-./scripts/load.sh data/ch-hackathon-raw-data.csv raw_events
-git status --short        # must never show a .csv
 ```
 
-Needs the `clickhouse` binary on PATH (`curl https://clickhouse.com/ | sh`). Nothing else.
-
-## The service
-
-ClickHouse Cloud, `ap-south-1`, database `phoenix`. Credentials live in `.env`, never in git.
+**1. Build the schema and load the data.** Content first: orphan `content_id`s are invisible to
+every filtered query.
 
 ```bash
-./scripts/init_db.sh                                        # database + every DDL in sql/schema
-./scripts/load.sh data/ch-hackathon-content-data.csv content
-./scripts/load.sh data/ch-hackathon-raw-data.csv raw_events_landing
-./scripts/ch.sh --query "SELECT count() FROM raw_events"    # ad-hoc queries, UTC pinned
+./scripts/init_db.sh phoenix_next          # database + every DDL in sql/schema/
+./scripts/init_insights.sh phoenix_next    # the ten insight tables
+./scripts/load.sh data/ch-hackathon-content-data.csv content phoenix_next
+./scripts/load.sh data/ch-hackathon-raw-data.csv raw_events_landing phoenix_next
 ```
 
-Loaded: 905,558 events over 10,866 sessions and 9,618 users, 2026-07-14 15:43 to
-2026-07-26 11:30 UTC, plus 33,464 content rows. 232 MB of CSV compresses to 3.76 MiB on disk.
+**2. Derive the serving layer.**
+
+```bash
+./scripts/derive.sh phoenix_next                                   # intervals, runs, deltas
+FROM_TS=... TO_TS=... CH_DATABASE=phoenix_next ./scripts/refresh_insights.sh
+```
+
+**3. Run the consoles.**
+
+```bash
+cd frontend && npm install && npm run dev    # http://localhost:3200
+```
+
+`/` is the concurrency console, `/v2` the insight console. Both carry the dataset switch.
+
+**4. Verify it, rather than taking this README's word for it.**
+
+```bash
+./scripts/check_docs.sh          # every documented claim against its artifact, plus schema drift
+./scripts/ground_state.sh        # what is actually on the server, measured
+./scripts/parity.sh              # serving layer versus a brute-force oracle over raw events
+./scripts/naive_baseline.sh      # how much a naive session-span count would have overstated
+```
+
+**Loading a fresh day**, including the unseen drop:
+[`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md).
+
+### Layout
+
+```
+docs/problem/            problem statement + data dictionary (given, do not edit)
+docs/                    STATUS.md first, then DECISIONS.md and FINAL_CHECKLIST.md
+sql/schema/              DDL, one file per table
+sql/queries/serving/     the ONLY home for shipped query text
+sql/queries/validation/  oracle and data-quality queries
+sql/insights/            the v2 audience-intelligence layer
+scripts/                 pipeline, gates, and evidence producers
+frontend/                Next.js consoles, see frontend/README.md
+evidence/                stamped artifacts + LEDGER.tsv
+data/                    gitignored, the CSVs never enter version control
+```
+
+### Documentation
+
+| Start here | |
+|---|---|
+| [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started |
+| [`docs/FINAL_CHECKLIST.md`](docs/FINAL_CHECKLIST.md) | The submission gate list, with what is left |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every modelling decision, its options, what each cost |
+| [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
+| [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Trade-offs, filter-shape read table, invariant audit |
+| [`docs/CLICKHOUSE_RULES_AUDIT.md`](docs/CLICKHOUSE_RULES_AUDIT.md) | The schema against the 31 best-practice rules |
+| [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
+| [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) | Any claim to the command that produced it, in one hop |
