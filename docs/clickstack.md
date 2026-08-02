@@ -90,8 +90,10 @@ records both connection hosts side by side so the distinction is visible rather 
 **And the script now proves it rather than assuming it.** Step 5 runs the panel SQL through
 HyperDX's *own* `/api/clickhouse-proxy`, pinned to the connection the panels use, and fails if it
 does not get rows back. Running the SQL against ClickHouse directly only proves the SQL is valid;
-it says nothing about which database HyperDX will choose. Measured on the last run: HyperDX read
-**33,489** delta rows from `phoenix` and a watermark lag of **53s** through that connection. If
+it says nothing about which database HyperDX will choose. Measured on the run behind
+`[V:clickstack_integration]`: HyperDX read **33,489** delta rows from `phoenix` and a watermark lag
+of **53s** through that connection. Both figures move with the live stream and are quoted here as
+the artifact recorded them, not as a current reading. If
 the app ever falls back to the bundled instance, `phoenix.*` does not exist there and the setup
 fails loudly instead of producing an empty dashboard.
 
