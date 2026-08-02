@@ -10,12 +10,23 @@ interface JSONCompactResult {
   statistics?: { rows_read?: number; elapsed?: number }
 }
 
-export async function chQuery<P extends object>(sql: string, params: P = {} as P): Promise<JSONCompactResult> {
+/**
+ * The database is a per-CALL choice, not a per-process one, because the two consoles read
+ * different generations: v1 serves the validated concurrency engine out of `phoenix`, and the v2
+ * insight console reads `phoenix_next`, which is where the insight layer lives and the only place
+ * it exists. Making it a parameter rather than an environment switch means both can be open in
+ * two browser tabs at once and neither can silently move the other.
+ */
+export async function chQuery<P extends object>(
+  sql: string,
+  params: P = {} as P,
+  database: string = CH_DATABASE,
+): Promise<JSONCompactResult> {
   if (!CH_HOST) {
     throw new Error('CH_HOST is not set, copy .env.example to ../.env and fill in ClickHouse Cloud credentials')
   }
   const qs = new URLSearchParams({
-    database: CH_DATABASE,
+    database,
     session_timezone: 'UTC',
     default_format: 'JSONCompact',
   })

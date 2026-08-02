@@ -106,6 +106,7 @@ export default function Dashboard() {
   const [range, setRange] = useState<RangeOption>('3')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [grain, setGrain] = useState<Grain>('minute')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
   const [mode, setMode] = useState<Mode | 'compare' | 'open' | 'ask'>('sessions')
 
@@ -318,7 +319,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {mode !== 'open' && mode !== 'ask' && <ConcurrencyChart series={series}/>}
+          {mode !== 'open' && mode !== 'ask' && <ConcurrencyChart series={series} grain={grain}/>}
 
           {mode !== 'open' && mode !== 'ask' && (
           <footer className={styles.footnote}>
@@ -327,6 +328,12 @@ export default function Dashboard() {
             running sum of per-minute +1/&minus;1 rows, never recomputed from session history. Peak is
             evaluated after every filter is applied, because a platform slice and a platform+country
             slice peak at different minutes.
+            {grain !== 'minute' && (
+              <> The curve is drawn at <b>{grain}</b> grain, each bucket carrying the peak of the
+                minutes inside it, so its highest point still equals the peak above. The readouts
+                are unchanged by grain: they are computed over the dense minute series, which is
+                the only denominator that gives a correct average.</>
+            )}
           </footer>
           )}
         </main>

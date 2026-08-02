@@ -62,7 +62,17 @@ echo "== 1. create $DST from sql/schema/" >&2
 
 # Captured ONCE, before either copy, and every later comparison is bounded by it. Without this
 # the destination's contents depend on how long the two INSERTs took.
-CUT="$(CH_DATABASE=$SRC val "SELECT toString(max(event_timestamp)) FROM raw_events")"
+#
+# CUT_BEFORE pins the cut instead of taking the source's live watermark, which is what you want
+# when the destination should be the VALIDATED CORPUS and nothing else. Copying at the live
+# watermark drags the source's live slice along: phoenix_next carried 1,298,060 such rows when
+# the since-dropped phoenix_insights was built from it. Every comparison below derives from $CUT, so bounding it
+# keeps s_raw/d_raw and s_frz/d_frz self-consistent and the PASS still means something.
+#
+# NOTE the boundary is INCLUSIVE (<=) while the frozen predicate is strict (<), so passing a
+# date here admits a row landing exactly at midnight. The count assertion downstream is what
+# catches that, and it is why the runbook checks for exactly 905558 rather than "about right".
+CUT="${CUT_BEFORE:-$(CH_DATABASE=$SRC val "SELECT toString(max(event_timestamp)) FROM raw_events")}"
 echo "== 2. cut at $CUT" >&2
 
 echo "== 3. copy content" >&2

@@ -26,7 +26,21 @@ set -a; [ -f .env ] && . ./.env; set +a
 _frozen=()
 case " $* " in
   *" --param_frozen_before"*) : ;;                       # caller is explicit, leave it alone
-  *) _frozen=(--param_frozen_before "${FROZEN_BEFORE:-2026-08-01}") ;;
+  # DEFAULT IS A FAR-FUTURE NO-OP, so `AND minute < {frozen_before}` matches everything and the
+  # served queries show live traffic. This is demo configuration, changed deliberately: the demo
+  # is the whole point now and a boundary that hides the live slice makes every console view
+  # empty. frontend/src/lib/env.ts already defaulted to 2100-01-01; this makes the CLI agree
+  # instead of quietly disagreeing with the UI.
+  #
+  # To reproduce evidence/ or to grade the unseen day, set it back for that one command:
+  #     FROZEN_BEFORE=2026-08-01 ./scripts/<whatever>
+  #
+  # This changes ONLY the SQL parameter. The scripts that use FROZEN_BEFORE as a CORPUS boundary
+  # rather than a display filter -- reset_live.sh, repartition_derived.sh, frozen_gate.sh,
+  # naive_baseline.sh -- each carry their own `${FROZEN_BEFORE:-2026-08-01}` fallback and
+  # interpolate it as a shell literal, not a bound parameter, so their guards are untouched by
+  # this line. That separation is why this is safe to flip.
+  *) _frozen=(--param_frozen_before "${FROZEN_BEFORE:-2100-01-01}") ;;
 esac
 
 exec clickhouse client \

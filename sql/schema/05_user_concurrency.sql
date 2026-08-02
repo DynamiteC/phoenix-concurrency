@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS user_minute_runs
     sign        Int8 DEFAULT 1
 )
 ENGINE = CollapsingMergeTree(sign)
+PARTITION BY toYYYYMMDD(run_start)
 ORDER BY (user_id, run_start, run_end);
 
 CREATE TABLE IF NOT EXISTS user_concurrency_deltas
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS user_concurrency_deltas
     delta       Int32
 )
 ENGINE = SummingMergeTree(delta)
+PARTITION BY toYYYYMMDD(minute)
 ORDER BY (platform, country, video_type, content_id, app_version, minute);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS user_concurrency_deltas_mv TO user_concurrency_deltas AS

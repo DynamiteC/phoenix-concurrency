@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS foreground_intervals
     interval_end     DateTime          -- exclusive
 )
 ENGINE = MergeTree
+-- PARTITION BY, added 2026-08-01 to match the live schema (scripts/repartition_derived.sh).
+-- Daily, mirroring raw_events. The purpose is LIFECYCLE, not scan pruning: these are exactly the
+-- tables scripts/reset_live.sh must clear, and without a partition key that clearing has to be a
+-- lightweight DELETE. That is a mutation, and worse, a DELETE followed by re-inserting rows which
+-- match its predicate leaves the new rows MASKED, measured in this repo at 108,521 rows
+-- physically present in system.parts and invisible to every SELECT.
+-- Daily rather than monthly because the unseen day lands in the same month as the demo rows, and
+-- a monthly key would make the mandatory pre-unseen-day cleanup impossible to do by partition.
+PARTITION BY toYYYYMMDD(interval_start)
 ORDER BY (video_session_id, interval_start);
 
 CREATE TABLE IF NOT EXISTS session_minute_runs
@@ -52,6 +61,7 @@ CREATE TABLE IF NOT EXISTS session_minute_runs
     INDEX idx_run_range (run_start, run_end) TYPE minmax GRANULARITY 4
 )
 ENGINE = CollapsingMergeTree(sign)
+PARTITION BY toYYYYMMDD(run_start)
 ORDER BY (video_session_id, run_start, run_end);
 
 -- ORDER BY puts dimensions FIRST and minute LAST, inverting the usual reflex on purpose:
@@ -69,6 +79,7 @@ CREATE TABLE IF NOT EXISTS concurrency_deltas
     delta       Int32
 )
 ENGINE = SummingMergeTree(delta)
+PARTITION BY toYYYYMMDD(minute)
 ORDER BY (platform, country, video_type, content_id, app_version, minute);
 
 -- Insert-time MV: every run written becomes exactly two rows, +1 when it starts and -1 in
