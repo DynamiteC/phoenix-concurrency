@@ -68,37 +68,45 @@ sufficiently clever thread from talking an agent into trying something.
 read-only, no phrasing gets a write through it. This layer raises the cost of an injection and makes
 the intent explicit and testable; it is not the last line and is not written as though it were.
 
-### Open item: the MCP server currently authenticates as an admin
+### Applied: the MCP server authenticates as a read-only user
 
 `librechat/docker-compose.override.yml` passes `CLICKHOUSE_USER` straight through to the
-`mcp-clickhouse` container, and the repo's `.env` carries `CH_USER=default`. On ClickHouse Cloud
-`default` is an administrator. So the strongest statement that can honestly be made about the Ask AI
-path today is that the prompt tells the agent not to write, which is exactly the kind of assurance
-this document says not to rely on.
+`mcp-clickhouse` container. It used to receive `CH_USER=default`, which on ClickHouse Cloud is an
+administrator, and the strongest honest statement about the path was then that the prompt asks the
+agent not to write, which is exactly the assurance this document says not to rely on.
 
-The fix is a dedicated user, and it is worth doing before the demo:
+`phoenix_ask` now exists and `librechat/.env` (gitignored) points the container at it:
 
 ```sql
 CREATE USER IF NOT EXISTS phoenix_ask IDENTIFIED BY '<generate one>'
-  SETTINGS readonly = 1, max_execution_time = 30, max_result_rows = 10000;
+  SETTINGS readonly = 1, max_execution_time = 30, max_result_rows = 100000;
 GRANT SELECT ON phoenix.* TO phoenix_ask;
 GRANT SELECT ON phoenix_next.* TO phoenix_ask;
 ```
 
-Then point the MCP container at it, in `librechat/.env`, rather than at the ingest credential:
-
-```
-CLICKHOUSE_USER=phoenix_ask
-CLICKHOUSE_PASSWORD=<the password above>
-```
-
-`readonly = 1` refuses writes and settings changes at the server, so it holds regardless of what
-the agent is talked into attempting. The two grants are what keep the split above meaningful at the
+`readonly = 1` refuses writes and settings changes at the server, so it holds regardless of what the
+agent is talked into attempting. The two grants are what make the per-console split real at the
 database rather than only in the prompt: without them, scoping v1 to `phoenix` and v2 to
 `phoenix_next` is a convention the agent is asked to observe.
 
-This has not been applied here because creating a database user is a change to the team's cloud
-account rather than to this repository.
+Verified against the live service as `phoenix_ask`, rather than assumed from the DDL:
+
+| Attempt | Result |
+|---|---|
+| `SELECT count() FROM phoenix.concurrency_deltas` | 65,037 |
+| `SELECT count() FROM phoenix_next.audience_minute_snapshot` | 261,564 |
+| `INSERT INTO concurrency_deltas` | `Code: 497 ... Not enough privileges` |
+| `CREATE TABLE t (a Int8) ENGINE=Memory` | `Code: 497 ... Not enough privileges` |
+| `SELECT 1 SETTINGS readonly=0` | `Code: 164 ... Cannot modify 'readonly' setting in readonly mode` |
+
+The last row is the one that matters: the restriction cannot be lifted from inside the session, so
+it does not depend on the agent choosing to respect it.
+
+`system.tables` stays readable. The MCP server needs it to describe a schema before querying it,
+and it carries no event data.
+
+To rotate, re-run the `CREATE USER` above with a new password and update `librechat/.env`. Cloud
+requires at least one special character in the password.
 
 Rendering is markdown through `react-markdown` with raw HTML disabled by default, so an answer
 containing markup renders as text rather than as an element.
