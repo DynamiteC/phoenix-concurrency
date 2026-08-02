@@ -3,7 +3,6 @@
 import {useEffect, useRef, useState} from 'react'
 import type {ConcurrencyResponse, DimensionValue, ClientFilters, Mode, StatusResponse} from '@/lib/types'
 import {istDateTime, istInputToUtc, utcToIstInput} from '@/lib/time'
-import {bucketPoints, type Grain} from '@/lib/grain'
 import ConsoleHeader from './ConsoleHeader'
 import FilterRail, {type RangeOption, type RefreshOption} from './FilterRail'
 import ModeSwitch from './ModeSwitch'
@@ -11,6 +10,7 @@ import StatReadout from './StatReadout'
 import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
 import OpenSessions from './OpenSessions'
+import AskAI from './AskAI'
 import styles from './Dashboard.module.css'
 
 const EMPTY_FILTERS: ClientFilters = {
@@ -108,7 +108,7 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState('')
   const [grain, setGrain] = useState<Grain>('minute')
   const [refreshMs, setRefreshMs] = useState<RefreshOption>(5000)
-  const [mode, setMode] = useState<Mode | 'compare' | 'open'>('sessions')
+  const [mode, setMode] = useState<Mode | 'compare' | 'open' | 'ask'>('sessions')
 
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [sessionData, setSessionData] = useState<ConcurrencyResponse | null>(null)
@@ -187,7 +187,7 @@ export default function Dashboard() {
     series.push({
       label: 'Sessions',
       color: 'var(--signal)',
-      points: bucketPoints(sessionData.points, grain),
+      points: sessionData.points,
       avg: sessionData.avgConcurrency,
       p95: sessionData.p95Concurrency,
       peakMinute: sessionData.peakMinute,
@@ -197,7 +197,7 @@ export default function Dashboard() {
     series.push({
       label: 'Users',
       color: 'var(--cool)',
-      points: bucketPoints(userData.points, grain),
+      points: userData.points,
       avg: userData.avgConcurrency,
       p95: userData.p95Concurrency,
       peakMinute: userData.peakMinute,
@@ -222,8 +222,6 @@ export default function Dashboard() {
           customTo={customTo}
           onCustomToChange={setCustomTo}
           boundsMax={status?.frozenLatest ? toInputValue(status.frozenLatest) : undefined}
-          grain={grain}
-          onGrainChange={setGrain}
           refreshMs={refreshMs}
           onRefreshChange={setRefreshMs}
           lastTickAt={lastTickAt}
@@ -236,7 +234,9 @@ export default function Dashboard() {
 
           {mode === 'open' && <OpenSessions asOf={status?.latestEvent ?? null}/>}
 
-          {mode !== 'compare' && mode !== 'open' && primary && (
+          {mode === 'ask' && <AskAI/>}
+
+          {mode !== 'compare' && mode !== 'open' && mode !== 'ask' && primary && (
             <div className={styles.stats}>
               <div className={styles.statsHero}>
                 <StatReadout
@@ -319,9 +319,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          {mode !== 'open' && <ConcurrencyChart series={series} grain={grain}/>}
+          {mode !== 'open' && mode !== 'ask' && <ConcurrencyChart series={series} grain={grain}/>}
 
-          {mode !== 'open' && (
+          {mode !== 'open' && mode !== 'ask' && (
           <footer className={styles.footnote}>
             Curve is read from{' '}
             {mode === 'users' ? <code>user_concurrency_deltas</code> : <code>concurrency_deltas</code>}, a
