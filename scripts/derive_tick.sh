@@ -113,6 +113,25 @@ fi
 # scope is required and not just an optimisation. Runs only after the session invariants hold,
 # since it reads asserted session runs.
 if [ "$closure" = "0" ] && [ "$dupes" = "1" ] && [ "$negs" = "0" ]; then
+  # foreground_intervals, append-only for SETTLED sessions. Until this line existed the table had
+  # no writer in the tick at all -- its only producer, 01_derive_intervals.sql, is whole-corpus
+  # with no window and runs solely in scripts/derive.sh's batch path. Under continuous ingest it
+  # simply stopped: measured on phoenix_next, runs were current at 2026-08-02 07:02 while
+  # intervals sat at 2026-08-01 17:07, and of 120,336 recently active sessions ZERO had an
+  # interval row.
+  #
+  # That did not read as an empty table downstream. 01_refresh_session_facts.sql LEFT JOINs this
+  # table, so it read as PLAUSIBLE ZEROS in tables the console marks fresh: 4,003 sessions with
+  # active_seconds and every active_after_* at zero, 0 heartbeat timeouts across 52,859 active
+  # sessions, and content_entry_cohorts frozen 396 minutes back. Silent zeros, not gaps.
+  #
+  # 01b is append-only and needs no sign column because it only touches sessions that have gone
+  # quiet for longer than tolerance_s AND have no interval rows yet. A settled session's
+  # intervals can never change, so nothing is ever rewritten and nothing can be duplicated.
+  CHT --param_tolerance_s="${TOLERANCE_S:-90}" --param_pause_inactive="${PAUSE_INACTIVE:-1}" \
+    --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
+    --queries-file sql/pipeline/01b_derive_intervals_incremental.sql
+
   CHT --param_from_ts="$from_ts" --param_to_ts="$max_ts" \
     --queries-file sql/pipeline/04c_merge_user_runs_atomic.sql
   uclosure="$(val "SELECT sum(delta) FROM user_concurrency_deltas")"
