@@ -11,10 +11,10 @@ audience that is actually watching, and proving it.
 
 ## Team Members
 
-<!-- TODO: fill in before opening the PR. One line per member.
-     Format required by the root README: `- Name (GitHub handle)` -->
-
-- TODO: Name (@handle)
+- Yogin Chauhan ([@yogin-123](https://github.com/yogin-123))
+- Shail Sheth ([@DynamiteC](https://github.com/DynamiteC))
+- Vinesh Chauhan ([@shyam8888](https://github.com/shyam8888))
+- Abhishek Surendran ([@abhishek-surendran106](https://github.com/abhishek-surendran106))
 
 ## What it does
 
