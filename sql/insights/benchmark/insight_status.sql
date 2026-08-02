@@ -25,7 +25,21 @@ SELECT
     (SELECT max(minute)          FROM audience_minute_snapshot WHERE minute < {frozen_before:String}) AS snapshot_latest,
     (SELECT uniqExact(minute)    FROM audience_minute_snapshot WHERE minute < {frozen_before:String}) AS snapshot_minutes,
 
-    (SELECT max(transition_at)   FROM session_state_transitions WHERE transition_at < {frozen_before:String}) AS transitions_latest,
+    -- NETTED BEFORE max(), and this is not defensive style. session_state_transitions is a
+    -- CollapsingMergeTree, so a bare max() reads RETRACTED rows too: a numeric aggregate cannot
+    -- cancel a -1 against its +1 the way sum(sign) does. Measured here, the un-netted input set
+    -- carries 512,688 fully-retracted keys beside 132,766 asserted ones, so the watermark can be
+    -- pulled forward by an edge that no view will ever render.
+    --
+    -- It happens to agree today, because the newest edge is currently asserted. That is luck, not
+    -- correctness, and this file's own header says a header claiming a minute the views cannot
+    -- render would be worse than no header. state_flow.sql:105 filters HAVING transitions > 0, so
+    -- a retracted edge is exactly what the views refuse to show.
+    (SELECT max(transition_at) FROM (
+        SELECT transition_at FROM session_state_transitions
+        WHERE transition_at < {frozen_before:String}
+        GROUP BY video_session_id, playback_instance_no, transition_at, transition_sequence
+        HAVING sum(sign) > 0)) AS transitions_latest,
     (SELECT sum(sign)            FROM session_state_transitions WHERE transition_at < {frozen_before:String}) AS transitions_asserted,
 
     (SELECT max(minute)          FROM playback_health_minute WHERE minute < {frozen_before:String})   AS health_latest,
