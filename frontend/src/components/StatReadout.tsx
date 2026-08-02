@@ -8,7 +8,7 @@ interface Props {
   accent?: 'signal' | 'cool' | 'neutral'
   size?: 'lg' | 'md'
   /** 'panel' (default) is one segment of the corner-ticked instrument strip its parent group
-   *  renders — it owns no border of its own, only its accent-colored top cap, so a row of
+   *  renders, it owns no border of its own, only its accent-colored top cap, so a row of
    *  these reads as one meter cluster rather than a grid of separate cards. 'inline' is a
    *  compact label:value pill for secondary/diagnostic readouts (query latency, rows read)
    *  that shouldn't compete visually with the metrics a viewer actually came here to read. */

@@ -1,6 +1,6 @@
 /* Not a boxed tab-bank: no enclosing border, no fill. Each switch is scored by its own
    bottom rule and the row shares one hairline underneath, the same seam-not-plate language
-   as the rest of the chassis — the active state is which rule lights up, not which cell has
+   as the rest of the chassis, the active state is which rule lights up, not which cell has
    a background. */
 .bank {
   display: inline-flex;

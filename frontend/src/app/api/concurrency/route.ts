@@ -21,9 +21,11 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
   const filters = parseFilters(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
+    const curveSql = servingSql('concurrency_curve.sql')
+    const reachSql = servingSql('reach.sql')
     const [curve, reach] = await Promise.all([
-      chQuery(servingSql('concurrency_curve.sql'), filters),
-      chQuery(servingSql('reach.sql'), filters),
+      chQuery(curveSql, filters),
+      chQuery(reachSql, filters),
     ])
 
     // Read by column NAME, never by position: these files are shared with the benchmark and
@@ -54,11 +56,14 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
       reach: sessionsRow ? Number(reachCol(sessionsRow, 'reach')) : 0,
       ms: Date.now() - t0,
       rowsRead: (curve.statistics?.rows_read ?? 0) + (reach.statistics?.rows_read ?? 0),
-      // Named so a viewer can go from the chart to the SQL that drew it. The submission guidelines
-      // ask for the query alongside the curve, and a path the reader can open beats a pasted copy
-      // that drifts from the file actually executed.
+      // The query itself, not a reference to it. The submission guidelines ask for the SQL
+      // alongside the curve because the modelling is the thing being judged. It is the text that
+      // just ran, read from the file at request time, so it cannot drift from what executed.
       sqlFiles: ['sql/queries/serving/concurrency_curve.sql', 'sql/queries/serving/reach.sql'],
+      sql: [curveSql, reachSql],
       reads: 'concurrency_deltas',
+      bytesRead: (curve.statistics?.bytes_read ?? 0) + (reach.statistics?.bytes_read ?? 0),
+      serverMs: Math.round(((curve.statistics?.elapsed ?? 0) + (reach.statistics?.elapsed ?? 0)) * 1000),
     }
     return NextResponse.json(body)
   } catch (e) {

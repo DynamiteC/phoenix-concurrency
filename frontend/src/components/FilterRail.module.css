@@ -42,7 +42,7 @@
 }
 
 /* Why the date pickers stop where they stop: the corpus is frozen at ingest, so anything after
-   that point simply isn't queryable yet — this is the console explaining its own edge instead of
+   that point simply isn't queryable yet, this is the console explaining its own edge instead of
    leaving a silently-greyed-out calendar to raise the question. */
 .boundsHint {
   font-size: 0.66rem;

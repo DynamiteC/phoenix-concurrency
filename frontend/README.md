@@ -1,8 +1,18 @@
 # frontend: Phoenix Console
 
 A Next.js (App Router, TypeScript) dashboard for the foreground-only concurrency serving layer.
-This is the primary and only UI. It replaced a single-file vanilla dashboard, which has been
-removed, and it is what a judge sees.
+It replaced a single-file vanilla dashboard, which has been removed, and it is what a judge sees.
+
+There are two consoles in this app, not one:
+
+- **`/`**, the concurrency console (`src/app/page.tsx`): the sessions/users/compare curves
+  described below.
+- **`/v2`**, the insight console (`src/app/v2/page.tsx`, `InsightConsole.tsx`): the ClickHouse
+  insight views (state flow, transitions, spikes, and the rest) with their own filter sidebar.
+
+Each links to the other, and both link out to the ClickStack dashboard (`ConsoleHeader.tsx` on
+`/`, the header in `InsightConsole.tsx` on `/v2`), so a judge landing on either one can reach the
+other and the raw observability view without hunting for a URL.
 
 ## Problem
 
@@ -94,11 +104,34 @@ npm run typecheck
 | `GET /api/user-concurrency` | `user_concurrency_deltas` | minute curve + peak/avg, session-independent |
 | `GET /api/status` | `raw_events`, `*_minute_runs`, `*_deltas` | ingestion counters, for the live/ingested header |
 | `GET /api/dimensions` | `concurrency_deltas` | distinct filter values for the sidebar |
+| `GET /api/v2/*` | insight tables under `sql/insights/` | one insight view's rows plus its query/cost fields, for `/v2` |
 
 Query params on `/api/concurrency` and `/api/user-concurrency` (all optional):
 `platform`, `country`, `video_type`, `app_version`, `content_id`, `from`, `to`.
 Empty string / `0` means "no filter on that dimension", filters are always passed as
 ClickHouse query parameters (`param_*`), never interpolated into the SQL text.
+
+Every route above returns its data alongside the query it ran and what that query cost, read by
+`QueryPanel` (`src/components/QueryPanel.tsx`, shared by both consoles):
+
+- `sql`: the executed query text, one entry per statement (some routes run a curve query plus a
+  reach query, so this is an array, not a single string).
+- `sqlFiles`: the repo-relative path each `sql` entry was read from, same order.
+- `reads`: the table the query reads (what `/v2`'s filter-disabling logic checks a column against,
+  see below).
+- `rowsRead`, `bytesRead`, `serverMs`: read off ClickHouse's own `statistics` for the query, not
+  timed client-side. `serverMs` is separate from wall time so a fast query does not get blamed for
+  a slow network hop.
+
+`QueryPanel` strips each file's leading comment block for display (`stripComments`), since a
+40-line explanation of why a clause is shaped the way it is belongs in the repo, not stacked above
+the eight lines of SQL a reader came to see; the server still executes the whole file, comments
+included; only the on-screen rendering is trimmed.
+
+On `/v2`, a view's filter sidebar disables any control whose column the current view's table does
+not carry, and names the table in the disabled control's title/label, rather than silently
+accepting a filter the query would drop. This replaced accepting-and-ignoring, which let a judge
+believe a filter narrowed a result that in fact ran unfiltered.
 
 ## Layout
 
@@ -112,9 +145,33 @@ src/lib/                 env loading, the ClickHouse HTTP client, shared types, 
 
 ## Design
 
-Dark, data-dense "control room" console rather than a generic admin-panel look: near-black
-chassis, phosphor-amber live indicator, signal-orange for the sessions series, cool cyan for the
-users series, corner-tick panel framing. One typeface throughout, tabular monospace (IBM Plex
-Mono), with headlines built from weight, letter-spacing, and size rather than a second display
-family. The chart is a hand-rolled SVG component (no charting dependency) since the data is one
+Both consoles share one design system, defined once in `src/app/globals.css`: a light "printed
+broadsheet" theme rather than a dark control-room or a separate admin-panel look. Warm paper
+background (`--bg` `#edeee9`), a slightly lighter card surface (`--bg-panel` `#f6f7f3`) for panels
+and tables, near-black ink (`--ink` `#14181c`), squared corners throughout (`--radius: 0`, a ruled
+document has no rounding), and hairline rules with one heavy rule reserved for the masthead and
+result frames. Two typefaces: Archivo Narrow for display, Archivo for body, plus IBM Plex Mono for
+tabular figures.
+
+Two accent colours carry the data, one job each: `--signal` (`#0f6e63`, teal) is the corrected,
+foreground-only answer and the primary chart series everywhere; `--cool` (`#345f7a`, slate blue) is
+the second series (user concurrency against session concurrency on `/`, a comparison series on
+`/v2`), deliberately not red, since red on this project already means the naive session-span
+overcount. `--phosphor` (`#8f6200`) marks live/"still arriving" state; `--alert` (`#b23a2e`) marks
+divergence and errors. Every one of these is measured against the paper, the darkest of the three
+surfaces, so the ratios in `globals.css`'s comments are worst-case, not best-case.
+
+`src/app/v2/tokens.css` does not define a second theme: it is a thin alias layer, scoped to `.v2`,
+that maps `/v2`'s own token names (`--surface-1`, `--action-blue`, `--series-1..5`, and so on) onto
+the shared tokens above. `console.module.css` under `/v2` references only those aliases, never a
+hardcoded colour, so the two consoles cannot drift into looking like different products. What
+does vary between the two, and is meant to: `/v2`'s type scale and 4px spacing grid, sized for
+dense insight tables rather than `/`'s ruled instrument panels.
+
+This replaced a prior state where `/` was a near-black "Signal Room" dark theme and `/v2` was a
+separate light theme (called "Langfuse" in a root-level `DESIGN.md` that has since been deleted
+along with that theme). Two visual languages in one submission read as two products; a judge
+should not be able to tell which console they are on from the palette alone.
+
+The `/` chart is a hand-rolled SVG component (no charting dependency) since the data is one
 densified per-minute series, a library buys nothing here but bundle size.

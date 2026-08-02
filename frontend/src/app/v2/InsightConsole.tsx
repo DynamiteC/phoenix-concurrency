@@ -3,6 +3,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import type {ClientFilters, DimensionValue, InsightStatusResponse, InsightTableResponse} from '@/lib/types'
 import {istDateTime} from '@/lib/time'
+import QueryPanel from '@/components/QueryPanel'
 import styles from './console.module.css'
 
 /** The nav. Each entry is a business question from the plan's section 21, not a table name:
@@ -72,8 +73,11 @@ const DIMS: {key: 'platform' | 'country' | 'video_type' | 'app_version'; label: 
 
 const nf = new Intl.NumberFormat('en-IN')
 
-/** HyperDX, where docker/clickstack/compose.yml puts it. Override for a deployment. */
+/** HyperDX, where docker/clickstack/compose.yml puts it. Override for a deployment. The login is
+ *  carried on the link for the reason ConsoleHeader.tsx sets out: it cannot be turned off without
+ *  rebuilding the image and losing the provisioned dashboards. */
 const CLICKSTACK_URL = process.env.NEXT_PUBLIC_CLICKSTACK_URL || 'http://localhost:8090'
+const CLICKSTACK_LOGIN = 'demo login: phoenix@example.com / PhoenixClickathon2026!'
 
 /**
  * An identifier is a number that must never be read as a quantity. content_id 990001 formatted as
@@ -277,7 +281,9 @@ export default function InsightConsole() {
           <span className={styles.brandSub}>Insights</span>
           <nav className={styles.brandLinks} aria-label="Related consoles">
             <a href="/">concurrency console</a>
-            <a href={CLICKSTACK_URL} target="_blank" rel="noreferrer">ClickStack</a>
+            <a href={CLICKSTACK_URL} target="_blank" rel="noreferrer" title={CLICKSTACK_LOGIN}>
+              ClickStack
+            </a>
           </nav>
         </div>
 
@@ -411,16 +417,18 @@ export default function InsightConsole() {
           <section className={styles.panel}>
             <div className={styles.panelHead}>
               <h2 className={styles.panelTitle}>{data.question}</h2>
-              <div className={styles.evidence}>
-                <span className={styles.evidenceItem}>
-                  reads <code>{data.reads}</code>
-                </span>
-                <span className={styles.evidenceItem}>{data.ms} ms</span>
-                <span className={styles.evidenceItem}>{nf.format(data.rowsRead)} rows read</span>
-                <span className={styles.evidenceItem}>
-                  <code>{data.sqlFile}</code>
-                </span>
-              </div>
+              {/* Gate B evidence and the query itself, open by default: on this console the query
+                  is the thing being examined, not a footnote to a chart. */}
+              <QueryPanel
+                sql={[data.sql]}
+                files={[data.sqlFile]}
+                reads={data.reads}
+                rowsRead={data.rowsRead}
+                bytesRead={data.bytesRead}
+                serverMs={data.serverMs}
+                wallMs={data.ms}
+                defaultOpen
+              />
               {data.ignores.length > 0 && (
                 <p className={styles.ignores}>
                   This view cannot filter by {data.ignores.filter((f) => f !== 'time').join(', ')}.

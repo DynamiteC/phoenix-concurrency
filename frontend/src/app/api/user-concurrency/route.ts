@@ -17,9 +17,11 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
   const filters = parseFilters(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
+    const curveSql = servingSql('user_concurrency_curve.sql')
+    const reachSql = servingSql('reach.sql')
     const [curve, reach] = await Promise.all([
-      chQuery(servingSql('user_concurrency_curve.sql'), filters),
-      chQuery(servingSql('reach.sql'), filters),
+      chQuery(curveSql, filters),
+      chQuery(reachSql, filters),
     ])
 
     const col = columnReader(curve.meta)
@@ -44,7 +46,10 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
       ms: Date.now() - t0,
       rowsRead: (curve.statistics?.rows_read ?? 0) + (reach.statistics?.rows_read ?? 0),
       sqlFiles: ['sql/queries/serving/user_concurrency_curve.sql', 'sql/queries/serving/reach.sql'],
+      sql: [curveSql, reachSql],
       reads: 'user_concurrency_deltas',
+      bytesRead: (curve.statistics?.bytes_read ?? 0) + (reach.statistics?.bytes_read ?? 0),
+      serverMs: Math.round(((curve.statistics?.elapsed ?? 0) + (reach.statistics?.elapsed ?? 0)) * 1000),
     }
     return NextResponse.json(body)
   } catch (e) {

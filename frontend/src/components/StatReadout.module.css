@@ -1,5 +1,5 @@
 /* One segment of the parent group's instrument strip, not a card of its own: no border, no
-   background, no corner-ticks here — the group container (see Dashboard.module.css) owns the
+   background, no corner-ticks here, the group container (see Dashboard.module.css) owns the
    frame and the hairline dividers between segments, so a row of these reads as one meter
    cluster instead of a grid of separate boxes. A value coloured red/orange at 2.7rem reads as
    an alarm the instant it happens to be zero (a live viewer count genuinely can be), so the
@@ -47,7 +47,7 @@
   color: var(--cool);
 }
 
-/* Diagnostic pill: query latency, rows read — technical readouts a viewer can ignore, so they
+/* Diagnostic pill: query latency, rows read, technical readouts a viewer can ignore, so they
    sit small and quiet instead of matching the weight of the metrics they came here to read. */
 .inline {
   display: flex;

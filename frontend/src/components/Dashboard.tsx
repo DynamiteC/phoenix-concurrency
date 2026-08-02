@@ -11,6 +11,7 @@ import StatReadout from './StatReadout'
 import ConcurrencyChart, {type ChartSeries} from './ConcurrencyChart'
 import DivergenceBadge from './DivergenceBadge'
 import OpenSessions from './OpenSessions'
+import QueryPanel from './QueryPanel'
 import styles from './Dashboard.module.css'
 
 const EMPTY_FILTERS: ClientFilters = {
@@ -100,20 +101,19 @@ async function fetchConcurrency(path: string, filters: ClientFilters): Promise<C
   return body as ConcurrencyResponse
 }
 
-/**
- * The query behind the numbers above it, named rather than pasted. The submission guidelines ask
- * for the ClickHouse query alongside the curve; a path the reader can open beats a copy in the UI,
- * which would be a second version of the query text to drift from the file that actually ran.
- */
+/** The query behind the numbers above it, with what it cost. See QueryPanel for why the text. */
 function Provenance({data}: {data: ConcurrencyResponse}) {
-  if (!data.sqlFiles) return null
+  if (!data.sql || !data.sqlFiles) return null
   return (
-    <p className={styles.provenance}>
-      reads <code>{data.reads}</code> via{' '}
-      {data.sqlFiles.map((f, i) => (
-        <span key={f}>{i > 0 && ' + '}<code>{f}</code></span>
-      ))}
-    </p>
+    <QueryPanel
+      sql={data.sql}
+      files={data.sqlFiles}
+      reads={data.reads}
+      rowsRead={data.rowsRead}
+      bytesRead={data.bytesRead}
+      serverMs={data.serverMs}
+      wallMs={data.ms}
+    />
   )
 }
 
