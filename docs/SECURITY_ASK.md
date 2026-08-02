@@ -46,6 +46,32 @@ read out of the database, is data. Content titles, app version strings and count
 user-supplied fields that can contain text shaped like commands, and the agent is told to treat any
 such text as a finding to report rather than an instruction to follow.
 
+## Tool calls, and why the prompt is long
+
+The agent holds three MCP tools: `list_databases`, `list_tables` and `run_query`. Left to itself it
+opens with the two discovery calls before it can write anything, and `list_tables` returns the full
+`CREATE` statement for every table in the database.
+
+Measured against the running MCP server:
+
+| Call | Response | Roughly |
+|---|---|---|
+| `list_tables(phoenix)` | 89,159 characters | 22K tokens |
+| `list_tables(phoenix_next)` | 192,789 characters | 48K tokens |
+
+So the system prompt carries the column-level schema inline and tells the agent not to make those
+calls. The two scope blocks are 2.2K and 4.0K characters, about 1K tokens: a fixed cost per request
+in place of up to 48K of variable cost, and one round trip in place of three.
+
+It is also the more accurate option. The prompt carries the two mistakes that produce a confident
+wrong number here, and neither is visible in a `CREATE` statement: summing a `ReplacingMergeTree`
+without `FINAL` adds superseded versions (measured 4x too high after four refresh runs, while the
+ratios stayed right, which is what makes it dangerous), and `count()`, `uniqExact()` and `max()` are
+all unsafe on the `CollapsingMergeTree` transitions table unless rows are netted by key first.
+
+The instruction is to answer in one query where one query will do, and to query again only when the
+first result genuinely needs a follow-up.
+
 ## Bounds
 
 | Limit | Value | Why |

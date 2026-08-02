@@ -39,6 +39,23 @@ export interface AskScope {
   role: string
   /** The tables it should reach for first, most useful first. */
   tables: string
+  /**
+   * Column-level schema, inlined so the agent never has to ask for it.
+   *
+   * THIS IS THE TOKEN OPTIMISATION, and it is worth the words it costs. Left to itself an agent
+   * holding list_databases, list_tables and run_query opens with two discovery calls before it can
+   * write anything, and list_tables returns the full CREATE statement for every table in the
+   * database. Measured against the live MCP server: 89,159 characters for phoenix and 192,789 for
+   * phoenix_next, roughly 22K and 48K tokens, to answer a question whose answer is one row.
+   *
+   * The blocks below are 2.2K and 4.0K characters. So this trades about 1K tokens of fixed cost
+   * for 48K of variable cost, and three round trips for one. It is also more accurate than
+   * discovery: the recipes carry the two mistakes that produce a confident wrong number here,
+   * which no CREATE statement would have told the agent.
+   */
+  schema: string
+  /** Worked query shapes for the two mistakes that are expensive to make here. */
+  recipes: string
 }
 
 export const V1_SCOPE: AskScope = {
@@ -51,6 +68,30 @@ export const V1_SCOPE: AskScope = {
     'to get a curve, never read them as levels), session_minute_runs and user_minute_runs ' +
     '(CollapsingMergeTree, net by key with sum(sign) before counting anything), content (title, ' +
     'video_type and category by content_id), raw_events (the event log, expensive, last resort)',
+  schema: [
+    'concurrency_deltas(platform, country, video_type, content_id, app_version, minute, delta)',
+    'user_concurrency_deltas(same columns as above)',
+    'session_minute_runs(video_session_id, user_id, content_id, platform, country, app_version,',
+    '  video_type, run_start, run_end, sign)  -- CollapsingMergeTree',
+    'user_minute_runs(same shape, keyed on user_id)  -- CollapsingMergeTree',
+    'content(content_id, title, video_type, category, ingested_at)',
+  ].join('\n'),
+  recipes: [
+    '-- The curve. A delta is a CHANGE, so it is summed cumulatively, and the running sum must',
+    '-- start at the beginning of the series or it silently drops every session that arrived',
+    '-- before the window and decays exactly when the system is healthiest.',
+    'SELECT minute, sum(d) OVER (ORDER BY minute) AS concurrency',
+    'FROM (SELECT minute, sum(delta) AS d FROM concurrency_deltas',
+    '      WHERE minute < now() GROUP BY minute) ORDER BY minute',
+    '',
+    '-- Peak and average for a filter. Never stored per rollup: a platform slice and a',
+    '-- platform+country slice peak at different minutes, so both are derived per question.',
+    '-- Add dimension predicates inside the innermost subquery so they prune granules.',
+    '',
+    '-- By title: content_id is on the event, the title is not. Always a join.',
+    'SELECT c.title, max(x.concurrency) FROM (<curve above, grouped by content_id>) x',
+    'ANY LEFT JOIN content AS c ON c.content_id = x.content_id GROUP BY c.title',
+  ].join('\n'),
 }
 
 export const V2_SCOPE: AskScope = {
@@ -64,6 +105,51 @@ export const V2_SCOPE: AskScope = {
     'before count/uniqExact/max), content_entry_cohorts, playback_health_minute, ' +
     'concurrency_spike_events, user_content_transitions, user_platform_transitions, ' +
     'late_event_audit, content',
+  schema: [
+    'audience_minute_snapshot(minute, content_id, title, category, video_type, platform, country,',
+    '  app_version, concurrent_sessions, concurrent_users, session_starts, first_plays,',
+    '  session_ends, foreground_entries, background_entries, video_errors, version, updated_at)',
+    'session_insight_facts(video_session_id, user_id, content_id, title, category, video_type,',
+    '  platform, country, app_version, session_start, first_play_at, session_end_at,',
+    '  first_active_at, last_active_at, active_seconds, active_interval_count, background_count,',
+    '  foreground_return_count, pause_count, resume_count, heartbeat_count, video_error_count,',
+    '  reached_first_heartbeat, active_after_1m/5m/10m/15m, ended_normally, abandoned, timed_out,',
+    '  reopened_after_end, first_event_at, last_event_at, version, updated_at)',
+    'session_state_transitions(video_session_id, playback_instance_no, user_id, content_id,',
+    '  platform, country, app_version, video_type, transition_at, from_state, to_state,',
+    '  trigger_event_type, trigger_event, seconds_in_previous_state, transition_sequence,',
+    '  version, sign)  -- CollapsingMergeTree',
+    'content_entry_cohorts(cohort_minute, content_id, title, category, video_type, platform,',
+    '  country, app_version, entered_sessions, active_after_1m/5m/10m/15m,',
+    '  retention_1m/5m/10m/15m, avg_active_seconds, median_active_seconds, p90_active_seconds,',
+    '  version, updated_at)',
+    'playback_health_minute(minute, content_id, platform, country, app_version, video_type,',
+    '  active_sessions, video_error_sessions, heartbeat_timeout_sessions, abandoned_sessions,',
+    '  video_error_rate, heartbeat_timeout_rate, abandonment_rate, version, updated_at)',
+    'concurrency_spike_events(content_id, window_start, peak_minute, baseline_concurrency,',
+    '  peak_concurrency, absolute_growth, growth_percent, minutes_to_peak,',
+    '  minutes_above_80pct_peak, concurrency_after_5m/10m/15m, retention_5m/10m/15m_percent,',
+    '  entered_sessions, background_rate_after_peak, error_rate_after_peak,',
+    '  timeout_rate_after_peak, spike_type, confidence, version, updated_at)',
+    'user_content_transitions / user_platform_transitions(from_*, to_*, transition_at,',
+    '  transition_type, version)',
+    'late_event_audit(event and its timing plus lateness_class; NOT the session dimensions)',
+    'content(content_id, title, video_type, category, ingested_at)',
+  ].join('\n'),
+  recipes: [
+    '-- ReplacingMergeTree(version) on every table above except session_state_transitions.',
+    '-- Summing without FINAL adds superseded versions: measured 4x too high after four refresh',
+    '-- runs, while the RATIOS stayed right, which is what makes it dangerous.',
+    'SELECT minute, sum(concurrent_sessions) FROM audience_minute_snapshot FINAL',
+    'WHERE minute >= ... GROUP BY minute ORDER BY minute',
+    '',
+    '-- session_state_transitions is CollapsingMergeTree(sign). count(), uniqExact() and max()',
+    '-- are ALL unsafe on it: net by key first, then aggregate the nets.',
+    'SELECT from_state, to_state, sum(net) AS transitions FROM (',
+    '  SELECT from_state, to_state, video_session_id, sum(sign) AS net',
+    '  FROM session_state_transitions WHERE transition_at >= ...',
+    '  GROUP BY from_state, to_state, video_session_id) GROUP BY from_state, to_state',
+  ].join('\n'),
 }
 
 /**
@@ -83,6 +169,18 @@ export function systemPrompt(scope: AskScope): string {
     'say which table would answer it rather than substituting one that would not.',
     '',
     `TABLES, best first: ${scope.tables}.`,
+    '',
+    'SCHEMA. Every column you can use is listed here, so you already have it:',
+    scope.schema,
+    '',
+    'ANSWER IN ONE TOOL CALL WHERE YOU CAN. Do NOT call list_databases or list_tables: the schema',
+    'above is complete and current, and those calls return every CREATE statement in the database,',
+    'which costs more than any answer this console produces. Go straight to run_query, and write',
+    'one query that returns the whole answer rather than several that each return a piece. Only',
+    'query again if the first result actually surprises you or genuinely needs a follow-up.',
+    '',
+    'WORKED SHAPES for the mistakes that are expensive here:',
+    scope.recipes,
     '',
     'THE DATASET, from docs/problem/dataset_details.md. Events carry content_id, video_session_id,',
     'user_id, event_type, event, event_timestamp, platform, app_version, country, audio_language,',
