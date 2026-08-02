@@ -12,14 +12,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl util-linux tzdata \
  && rm -rf /var/lib/apt/lists/*
 
-# The same binary scripts/ch.sh expects on PATH. Pinned rather than `curl | sh` so a rebuild
-# during judging cannot pick up a different client than the one the numbers were measured with.
-ARG CLICKHOUSE_VERSION=25.3.1.2703
-RUN curl -sSL "https://github.com/ClickHouse/ClickHouse/releases/download/v${CLICKHOUSE_VERSION}-lts/clickhouse-common-static-${CLICKHOUSE_VERSION}-amd64.tgz" \
-      -o /tmp/ch.tgz \
- && tar -xzf /tmp/ch.tgz -C /tmp \
- && /tmp/clickhouse-common-static-${CLICKHOUSE_VERSION}/install/doinst.sh \
- && rm -rf /tmp/ch.tgz /tmp/clickhouse-common-static-${CLICKHOUSE_VERSION} \
+# The same binary scripts/ch.sh expects on PATH, taken from the official APT repository.
+#
+# THIS REPLACED A PINNED GITHUB RELEASE TARBALL, which failed on a clean EC2 build with exit 126.
+# The cause is worth recording because it is a generic trap: `curl -sSL` without `-f` treats a 404
+# as success and writes the HTML error page to the output file. `tar` then extracts nothing, the
+# expected doinst.sh does not exist, and the shell reports 126 (found but not executable) rather
+# than anything resembling "that download 404'd". Any pinned release URL is one upstream retag
+# away from the same failure.
+#
+# The APT repository is the vendor's supported path, resolves the current stable itself, and fails
+# loudly when it cannot. clickhouse-client pulls clickhouse-common-static as a dependency.
+RUN curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml' >/dev/null 2>&1 || true \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends gnupg dirmngr \
+ && GNUPGHOME="$(mktemp -d)" && export GNUPGHOME \
+ && gpg --no-default-keyring --keyring /usr/share/keyrings/clickhouse-keyring.gpg \
+        --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3A9EA1193A97B548BE1457D48919F6BD2B48D754 \
+ && rm -rf "$GNUPGHOME" && unset GNUPGHOME \
+ && chmod a+r /usr/share/keyrings/clickhouse-keyring.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main" \
+      > /etc/apt/sources.list.d/clickhouse.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends clickhouse-client \
+ && rm -rf /var/lib/apt/lists/* \
  && clickhouse client --version
 
 WORKDIR /app
@@ -29,6 +45,12 @@ COPY frontend/package.json frontend/package-lock.json* frontend/
 RUN cd frontend && npm ci
 
 COPY . .
+
+# The image must not depend on the host's file modes. A checkout transferred by scp without -p, or
+# unpacked from a zip, arrives with every script non-executable, and the containers then fail at
+# run time with a bare "Permission denied" that looks nothing like its cause. Setting the bit here
+# makes the image correct regardless of how the tree reached the build host.
+RUN chmod +x scripts/*.sh deploy/*.sh 2>/dev/null || true
 
 RUN cd frontend && npm run build
 

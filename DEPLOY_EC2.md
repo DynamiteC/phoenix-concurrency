@@ -19,6 +19,18 @@ sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 git
 sudo usermod -aG docker ubuntu && newgrp docker
 ```
 
+**If you copied the folder here with scp or a zip rather than `git clone`, restore the exec bits
+first.** Both of those drop file modes, and the failure it produces is a bare "Permission denied"
+that looks nothing like its cause:
+
+```bash
+chmod +x scripts/*.sh deploy/*.sh
+```
+
+`git clone` preserves the modes and needs none of this. The Docker image sets the bit itself
+during the build, so the containers are unaffected either way; this is only for the scripts you
+run directly on the host, such as `check_published_ports.sh` and the `init_db.sh` seeding step.
+
 ## 2. Get the code
 
 Deploy the submission folder. It is self-contained and carries no secrets.
