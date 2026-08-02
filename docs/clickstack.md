@@ -27,7 +27,25 @@ open http://localhost:8090
 
 Login: `phoenix@example.com` / `PhoenixClickathon2026!` (overridable via `HDX_EMAIL` and
 `HDX_PASSWORD`). This is a local container on a laptop, so the credential is a convenience, not a
-secret; nothing is exposed beyond localhost.
+secret; nothing is exposed beyond localhost. Both consoles carry it on their ClickStack link, so a
+viewer is never blocked at a sign-in form they have no way past.
+
+### The login cannot simply be switched off, and why we did not force it
+
+The obvious ask for a demo is to remove the sign-in entirely. Two measurements say that costs more
+than it buys:
+
+- HyperDX enforces auth **server-side**. An unauthenticated `GET /api/dashboards` and `GET /api/me`
+  both return `401` on this container, so nothing client-side can bypass it.
+- Its no-login local mode is a **build-time** flag, not a runtime one:
+  `NEXT_PUBLIC_IS_LOCAL_MODE=true` appears in the image's own `build:clickhouse` script, and the
+  shipped bundle carries `"NEXT_PUBLIC_IS_LOCAL_MODE":"false"`. Flipping the value in the served
+  `__ENV.js` changes what the browser reads and not what the API enforces.
+
+Local mode also stores connections and sources in the browser rather than on the server, which is
+exactly where `scripts/clickstack_setup.sh` puts the five provisioned tiles and the Cloud
+connection. Turning it on would trade one sign-in for an empty app asking a judge to configure a
+ClickHouse connection by hand. The credential on the link is the smaller obstacle by a wide margin.
 
 `scripts/clickstack_setup.sh` provisions everything through HyperDX's REST API rather than through
 the UI, which is what makes this page reproducible. The panel SQL in that script is the panel

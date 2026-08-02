@@ -27,6 +27,47 @@ Constraints that shape every decision:
 
 Full statement: [`docs/problem/PROBLEM_STATEMENT.md`](docs/problem/PROBLEM_STATEMENT.md).
 Data dictionary: [`docs/problem/dataset_details.md`](docs/problem/dataset_details.md).
+Submission rules: [`docs/problem/SONYLIV_SUBMISSION_GUIDELINES.md`](docs/problem/SONYLIV_SUBMISSION_GUIDELINES.md).
+
+## What we solved
+
+| The question | What answers it | The result |
+|---|---|---|
+| What is an active interval when the heartbeat is missing, the player is paused, or the app is backgrounded? | A three-bucket state machine, unknown values neutral, 90s gap tolerance: `sql/schema/03_event_state.sql` | Naive session-span counting reports **9,942** concurrent where foreground-only counting reports **7,576**: a **31% overcount** removed |
+| How should active ranges be represented? | Normalized intervals, to per-session minute runs, to `+1`/`-1` minute deltas | 232 MB of CSV becomes a **61 KiB** serving table; a three-hour session costs the same two rows as a two-minute one |
+| How do you get minute-wise peak and average without scanning raw session history? | A seeded cumulative sum over the delta table: `sql/queries/serving/concurrency_curve.sql`, `peak_average.sql` | Peak and average are derived per request, never pre-stored per rollup, because a platform slice and a platform+country slice peak at different minutes |
+| How does it stay filter-friendly? | The same queries, parameterised on all six dimensions, pruning granules on the serving table's own sort key | A platform filter prunes to **16,384 rows, 2 of 4 granules** |
+| How are open sessions handled? | Retract-and-re-assert on a CollapsingMergeTree, plus an explicit open-session view | Absorbing new heartbeats is incremental. A rebuild is never needed, and what is still revisable is stated on screen rather than hidden |
+| Does it hold on data nobody tuned on? | One command reloads a fresh day: `./scripts/load.sh <file> <table>` | [`docs/RUNBOOK_UNSEEN_DAY.md`](docs/RUNBOOK_UNSEEN_DAY.md) |
+
+**Beyond the ask.** A second generation, `phoenix_next`, turns the curve into an explanation:
+ten insight views covering why concurrency moved, whether the audience it gained stayed, which
+app version loses viewers, which content takes whose audience, which device hands off to which,
+and what arrived late enough to change an answer already given. Each is one purpose-built table
+and one committed query, gated on parity against ground truth and on what it reads.
+
+**The OSS integration is ClickStack**, not a badge: HyperDX and the OpenTelemetry collector
+running against our own ClickHouse Cloud service, with a live dashboard on `concurrency_deltas`
+and a read-budget panel built from `system.query_log`. Both consoles link to it.
+[`docs/clickstack.md`](docs/clickstack.md).
+
+**Nothing here is quoted from memory.** Every number above resolves through
+[`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) to the command that produced it and the artifact it
+wrote. `./scripts/check_docs.sh` fails the build when a claim and its evidence disagree.
+
+## The product
+
+Two consoles, one design system, both reading ClickHouse directly.
+
+| Route | Reads | What it is for |
+|---|---|---|
+| `/` | `phoenix` | The concurrency curve: sessions and users, peak, both averages, p95, reach, open sessions, and the naive-versus-corrected divergence |
+| `/v2` | `phoenix_next` | Ten insight views over the audience-intelligence layer |
+
+Both print the ClickHouse query that produced what is on screen, with the table it read, rows
+read, bytes read, server time and wall time underneath. The guidelines ask for the query
+alongside the curve because the modelling is what is being judged; the text shown is read from
+the shipped `.sql` file at request time, so it cannot drift from what executed.
 
 ## Architecture
 
