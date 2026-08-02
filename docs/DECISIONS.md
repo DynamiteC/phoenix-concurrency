@@ -100,8 +100,8 @@ would turn it from a choice into a measurement.
 
 ## D7. The primary average is over all minutes in the range
 
-**Question.** The denominator of "average concurrency" is a definition and the graded ground truth
-is private.
+**Question.** The denominator of "average concurrency" is a definition choice, not a fact to be
+looked up.
 
 | Definition | 2026-07-26 | Denominator |
 |---|---|---|
@@ -113,6 +113,14 @@ is private.
 screen with their own denominators. Showing one number and calling it "the average" hides the
 choice rather than making it; shipping all three is cheap insurance against a definition mismatch
 that would otherwise cost the correctness score outright.
+
+**Amended 2026-08-02.** The original rationale leaned on the answer key being private, so shipping
+three numbers was hedging against a mismatch we could not see. The revised problem statement
+deletes the answer key entirely: correctness is now judged by judges spot-checking our numbers
+against the raw events, and "a team that can defend its trade-offs beats a team with lucky
+numbers". The decision does not change, but its justification gets stronger rather than weaker.
+Three labelled denominators, each reconcilable to raw events, is now the rigour the rubric asks
+for rather than insurance against a hidden key.
 
 **Decided:** 2026-08-01. **Evidence:** `[V:runbook_validation]`, `[V:oracle_parity]`.
 

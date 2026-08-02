@@ -189,8 +189,10 @@ scaffolding is affected, not only the serving queries.
 
 ### 3.1 Ship both average definitions
 One number is currently shipped. The task file has asked twice for two, and the reason
-stands: the ground truth is private and the denominator is a definition choice we cannot
-see.
+stands, though its basis changed on 2026-08-02: the denominator is a definition choice, and
+the revised problem statement judges correctness by spot-check against raw events rather than
+against a private key. Every definition we ship therefore has to be reconcilable, and showing
+one without naming its denominator hides the choice.
 
 Ship all three candidates measured, one labelled primary:
 - all minutes in the requested range, with concurrency carried forward across gap minutes
