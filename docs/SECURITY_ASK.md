@@ -65,10 +65,40 @@ A system prompt is a strong instruction, not an enforcement mechanism. Nothing h
 sufficiently clever thread from talking an agent into trying something.
 
 **The durable control is the credential the MCP server holds.** If that ClickHouse account is
-read-only and scoped to the databases it needs, no phrasing gets a write through it. This layer
-raises the cost of an injection and makes the intent explicit and testable; it is not the last line
-and is not written as though it were. Before demoing, confirm what
-`librechat/librechat.yaml`'s `clickhouse` MCP server authenticates as.
+read-only, no phrasing gets a write through it. This layer raises the cost of an injection and makes
+the intent explicit and testable; it is not the last line and is not written as though it were.
+
+### Open item: the MCP server currently authenticates as an admin
+
+`librechat/docker-compose.override.yml` passes `CLICKHOUSE_USER` straight through to the
+`mcp-clickhouse` container, and the repo's `.env` carries `CH_USER=default`. On ClickHouse Cloud
+`default` is an administrator. So the strongest statement that can honestly be made about the Ask AI
+path today is that the prompt tells the agent not to write, which is exactly the kind of assurance
+this document says not to rely on.
+
+The fix is a dedicated user, and it is worth doing before the demo:
+
+```sql
+CREATE USER IF NOT EXISTS phoenix_ask IDENTIFIED BY '<generate one>'
+  SETTINGS readonly = 1, max_execution_time = 30, max_result_rows = 10000;
+GRANT SELECT ON phoenix.* TO phoenix_ask;
+GRANT SELECT ON phoenix_next.* TO phoenix_ask;
+```
+
+Then point the MCP container at it, in `librechat/.env`, rather than at the ingest credential:
+
+```
+CLICKHOUSE_USER=phoenix_ask
+CLICKHOUSE_PASSWORD=<the password above>
+```
+
+`readonly = 1` refuses writes and settings changes at the server, so it holds regardless of what
+the agent is talked into attempting. The two grants are what keep the split above meaningful at the
+database rather than only in the prompt: without them, scoping v1 to `phoenix` and v2 to
+`phoenix_next` is a convention the agent is asked to observe.
+
+This has not been applied here because creating a database user is a change to the team's cloud
+account rather than to this repository.
 
 Rendering is markdown through `react-markdown` with raw HTML disabled by default, so an answer
 containing markup renders as text rather than as an element.
