@@ -6,15 +6,18 @@
 // browser and discards the tiles scripts/clickstack_setup.sh provisions through the API. So the
 // login is performed here instead of being asked of the viewer.
 //
-// WHY THE COOKIE CARRIES ACROSS. HyperDX sets `connect.sid` with `Domain=localhost`, and cookies
-// are scoped by host and NOT by port. A cookie this route sets on localhost:3200 is therefore
-// sent by the browser to localhost:8090 on the redirect that follows. That is the whole trick.
+// WHY THE COOKIE CARRIES ACROSS. Cookies are scoped by host and NOT by port, so a cookie this
+// route sets on the console's origin is sent by the browser to HyperDX's port on the redirect that
+// follows. That is the whole trick. The domain is derived from the request rather than pinned, so
+// it survives a real hostname; see the comment on the Set-Cookie below.
 //
-// NOT A SECRET. The credential is the fixed demo login documented in docs/clickstack.md, on a
-// container bound to localhost, and it is overridable by environment for any other deployment. It
-// is read from the environment rather than written here so that a real deployment is a config
-// change and not a code change.
-import {NextResponse} from 'next/server'
+// NOT A SECRET. The credential is the fixed demo login documented in docs/clickstack.md, and it is
+// overridable by environment so a real deployment is a config change and not a code change.
+//
+// ON A PUBLIC HOST THIS PUBLISHES AN AUTHENTICATED DASHBOARD. Anyone who reaches this route gets a
+// HyperDX session. That is a convenience on a laptop and a decision on a server; DEPLOYMENT.md
+// states the three ways to handle it and does not pick one silently.
+import {NextRequest, NextResponse} from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,7 +26,7 @@ const HDX_URL = process.env.NEXT_PUBLIC_CLICKSTACK_URL || 'http://localhost:8090
 const HDX_EMAIL = process.env.HDX_EMAIL || 'phoenix@example.com'
 const HDX_PASSWORD = process.env.HDX_PASSWORD || 'PhoenixClickathon2026!'
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   // Degrading to the plain dashboard URL is the correct failure here, every time. If HyperDX is
   // down the viewer sees HyperDX being down; if the credential is wrong they see its login form.
   // Either is a better answer than an error page from a console that is not the thing they asked
@@ -63,11 +66,22 @@ export async function GET(): Promise<NextResponse> {
     // Re-issued rather than forwarded verbatim: the upstream header carries an Expires this route
     // has no reason to reproduce, and Domain/Path are the two attributes that make it reach the
     // other port. HttpOnly stays, because nothing on either console reads this value.
+    //
+    // THE DOMAIN IS DERIVED, NOT PINNED. Hardcoding `localhost` worked on a laptop and would have
+    // failed silently on the EC2 host this gets demoed from: a cookie scoped to a domain the
+    // browser is not on is simply dropped, so the redirect would land on a login form with no
+    // indication why. An IP address must be sent with NO Domain attribute at all, because the
+    // attribute is only valid for names, and omitting it host-scopes the cookie, which is what we
+    // want anyway. Ports are never part of cookie scope, which is what makes the hop to HyperDX
+    // work in the first place.
+    const host = req.headers.get('host')?.split(':')[0] ?? 'localhost'
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
     out.cookies.set('connect.sid', decodeURIComponent(sid), {
-      domain: 'localhost',
+      ...(isIp ? {} : {domain: host}),
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
+      secure: req.nextUrl.protocol === 'https:',
       maxAge: 60 * 60 * 24 * 7,
     })
     return out
