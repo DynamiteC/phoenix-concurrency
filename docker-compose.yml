@@ -122,8 +122,11 @@ volumes:
 # LibreChat, for the v2 Ask tab only. Genuinely behind a profile now (`profiles: ["chat"]` on
 # each service in librechat/docker-compose*.yml): the consoles are fully functional without it,
 # so a plain `docker compose up -d` starts only the four core containers.
+# A single include entry with a path LIST (base first, overlay second): two separate entries
+# each redefine services.mongodb/api, and Compose auto-applies the override next to an included
+# file, so older binaries (the EC2 host's apt v2.2x) fail with "conflicts with imported resource".
 include:
-  - path: librechat/docker-compose.yml
-    project_directory: librechat
-  - path: librechat/docker-compose.override.yml
+  - path:
+      - librechat/docker-compose.yml
+      - librechat/docker-compose.override.yml
     project_directory: librechat
