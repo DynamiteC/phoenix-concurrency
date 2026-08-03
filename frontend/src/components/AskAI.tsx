@@ -53,11 +53,47 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix_graded', 
   const [apiKey, setApiKey] = useState('')
   const [provider, setProvider] = useState<LlmProvider>('google')
   const [keyOpen, setKeyOpen] = useState(false)
+  // The provider's LIVE model list for THIS key, fetched through /api/ask/models. Hardcoded
+  // defaults rot: providers retire entry-tier models for new keys while old keys keep them, so
+  // the only list worth showing is the one this key can actually call.
+  const [models, setModels] = useState<string[]>([])
+  const [model, setModel] = useState('')
+  const [modelsError, setModelsError] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     listRef.current?.scrollTo({top: listRef.current.scrollHeight})
   }, [thread, pending])
+
+  // Debounced: fires once the pasted key stops changing, and again on a provider switch. A stale
+  // response for the previous provider/key must not overwrite the current list, hence `gone`.
+  useEffect(() => {
+    setModels([])
+    setModel('')
+    setModelsError('')
+    const key = apiKey.trim()
+    if (!key || key.length < 12) return
+    let gone = false
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/ask/models', {
+          headers: {'X-LLM-Key': key, 'X-LLM-Provider': provider},
+        })
+        const body = await safeJson(res)
+        if (gone) return
+        if (!res.ok) throw new Error(body.error || 'could not list models')
+        const list: string[] = body.models ?? []
+        setModels(list)
+        setModel(list[0] ?? '')
+      } catch (e) {
+        if (!gone) setModelsError((e as Error).message)
+      }
+    }, 600)
+    return () => {
+      gone = true
+      clearTimeout(t)
+    }
+  }, [apiKey, provider])
 
   /** `override` lets a starter chip submit its own text directly rather than round-tripping
    *  through `input` state, which would not have updated yet in the same tick as the click. */
@@ -78,6 +114,7 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix_graded', 
           // Referer headers; this project also publishes system.query_log extracts as graded
           // evidence, so a key in a URL would be a key in the submission.
           ...(apiKey.trim() ? {'X-LLM-Key': apiKey.trim(), 'X-LLM-Provider': provider} : {}),
+          ...(apiKey.trim() && model ? {'X-LLM-Model': model} : {}),
         },
         body: JSON.stringify({messages: next}),
       })
@@ -153,6 +190,26 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix_graded', 
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
+            {models.length > 0 && (
+              <>
+                <label className={styles.keyLabel} htmlFor="llm-model">
+                  Model
+                </label>
+                <select
+                  id="llm-model"
+                  className={styles.keyInput}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                >
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+            {modelsError && <p className={styles.error}>{modelsError}</p>}
             <p className={styles.keyNote}>
               <strong>Your key stays in this browser tab.</strong> We do not store it, log it,
               write it to any file, or share it with anyone. It is sent only as the authorization

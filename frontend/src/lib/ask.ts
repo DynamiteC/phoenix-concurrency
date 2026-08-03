@@ -393,6 +393,13 @@ export interface AskCredential {
   key: string
   /** Null when falling back to the server's own configured agent. */
   provider: LlmPreset | null
+  /**
+   * The model the visitor picked from their provider's live model list, empty for the preset
+   * default. Providers retire entry-tier models for NEW keys while keeping them for old ones
+   * (measured: gemini-2.5-flash 404s "no longer available to new users"), so a hardcoded default
+   * cannot stay valid for every key and the picker exists to route around that.
+   */
+  model?: string
 }
 
 /**
@@ -435,7 +442,14 @@ export function requestCredential(req: {headers: {get(name: string): string | nu
           'Check you pasted the whole key and nothing else.',
       )
     }
-    return {key, provider}
+    // The picked model rides a header for the same logging reasons as the key. Same character
+    // discipline: it lands in an outbound JSON body, not a header, but a name that fails this
+    // class is not a model id any of the three providers has ever issued.
+    const model = req.headers.get('x-llm-model')?.trim() ?? ''
+    if (model && (model.length > 80 || !/^[\w.\-/:]+$/.test(model))) {
+      throw new AskCredentialError('that model name is not one we can send. Pick one from the list.')
+    }
+    return {key, provider, model}
   }
 
   // No caller credential at all. Falling back to the server's key means anonymous visitors spend
@@ -580,6 +594,48 @@ function logLangfuse(trace: {
   }).catch(() => {})
 }
 
+/**
+ * The provider's LIVE model list, fetched with the visitor's own key.
+ *
+ * A hardcoded default model cannot stay correct: providers retire entry-tier models for NEW keys
+ * while keeping them alive for old ones (measured: gemini-2.5-flash answered one team key and
+ * 404ed "no longer available to new users" for another on the same day). The only list that is
+ * true for a given key is the one that key can see, so the Ask panel asks for it and the picker
+ * shows exactly what will work.
+ */
+const MODEL_LIST_URLS: Record<LlmProvider, string> = {
+  anthropic: 'https://api.anthropic.com/v1/models?limit=100',
+  google: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
+  openai: 'https://api.openai.com/v1/models',
+}
+// Chat-capable families only. OpenAI's /models mixes in embeddings, audio and image models that
+// would 400 on chat/completions; the other two lists are mostly clean but get the same treatment.
+const MODEL_FILTERS: Record<LlmProvider, RegExp> = {
+  anthropic: /^claude/,
+  google: /^gemini-(?!.*(embedding|tts|image))/,
+  openai: /^(gpt-|o\d|chatgpt)(?!.*(audio|realtime|transcribe|tts|image|embedding|moderation))/,
+}
+export async function listProviderModels(provider: LlmPreset, key: string): Promise<string[]> {
+  const headers: Record<string, string> =
+    provider.id === 'anthropic'
+      ? {'x-api-key': key, 'anthropic-version': '2023-06-01'}
+      : {Authorization: `Bearer ${key}`}
+  const res = await fetch(MODEL_LIST_URLS[provider.id], {
+    headers,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15_000),
+  })
+  const body = await res.text()
+  if (!res.ok) throw new Error(`${provider.label} returned ${res.status}: ${body.slice(0, 200)}`)
+  const data = JSON.parse(body) as {data?: {id?: string}[]}
+  const models = (data.data ?? [])
+    .map((m) => String(m.id ?? '').replace(/^models\//, ''))
+    .filter((id) => MODEL_FILTERS[provider.id].test(id))
+  // Newest first is what the picker wants and reverse-alphabetical is how all three providers'
+  // version-numbered names happen to sort. Crude, correct enough for a default.
+  return [...new Set(models)].sort().reverse().slice(0, 30)
+}
+
 /** One OpenAI-format chat message on the wire; wider than AskMessage because of tool turns. */
 interface WireMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -599,6 +655,7 @@ const TOOL_MAX_ROUNDS = 6
 async function askDirect(scope: AskScope, messages: AskMessage[], cred: AskCredential): Promise<AskResult> {
   const provider = cred.provider
   if (!provider) throw new Error('askDirect called without a provider preset')
+  const model = cred.model || provider.model
   const t0 = Date.now()
 
   const tools = [
@@ -640,7 +697,7 @@ async function askDirect(scope: AskScope, messages: AskMessage[], cred: AskCrede
           // The visitor's own key. Never logged, never traced, never sent anywhere else.
           Authorization: `Bearer ${cred.key}`,
         },
-        body: JSON.stringify({model: provider.model, messages: thread, tools, stream: false}),
+        body: JSON.stringify({model, messages: thread, tools, stream: false}),
         signal: controller.signal,
         cache: 'no-store',
       })
@@ -670,7 +727,7 @@ async function askDirect(scope: AskScope, messages: AskMessage[], cred: AskCrede
         input: messages[messages.length - 1]?.content ?? '',
         output: content,
         metadata: {provider: provider.id, database: scope.database, rounds: round + 1, queries, ms: result.ms},
-        model: provider.model,
+        model,
         usage,
         startedAt: t0,
       })
