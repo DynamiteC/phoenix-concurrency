@@ -14,6 +14,16 @@ export interface LlmPreset {
   /** The LibreChat endpoint this maps to; it must carry `userProvidedKey: true`. */
   endpoint: string
   /**
+   * The provider's OpenAI-compatible chat-completions URL, called DIRECTLY with the visitor's key.
+   *
+   * Bring-your-own-key cannot go through LibreChat at all: its agents API authenticates the
+   * bearer as a LibreChat-issued API key (verified against the live instance, which returns
+   * 401 invalid_api_key for a raw provider key), and it has no per-request provider-key
+   * mechanism. All three providers ship an OpenAI-compatible endpoint, so one request shape
+   * and one tool-call loop covers every preset.
+   */
+  url: string
+  /**
    * The model to request when the caller brings their own key.
    *
    * REQUIRED, not optional. The agent id alone is enough only on the server credential path,
@@ -33,6 +43,7 @@ export const LLM_PRESETS: Record<LlmProvider, LlmPreset> = {
     label: 'Claude',
     keyUrl: 'https://console.anthropic.com/settings/keys',
     endpoint: 'anthropic',
+    url: 'https://api.anthropic.com/v1/chat/completions',
     model: 'claude-haiku-4-5-20251001',
   },
   google: {
@@ -40,6 +51,7 @@ export const LLM_PRESETS: Record<LlmProvider, LlmPreset> = {
     label: 'Gemini',
     keyUrl: 'https://aistudio.google.com/apikey',
     endpoint: 'google',
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
     model: 'gemini-2.5-flash',
   },
   openai: {
@@ -47,6 +59,7 @@ export const LLM_PRESETS: Record<LlmProvider, LlmPreset> = {
     label: 'Codex (OpenAI)',
     keyUrl: 'https://platform.openai.com/api-keys',
     endpoint: 'openAI',
+    url: 'https://api.openai.com/v1/chat/completions',
     model: 'gpt-4o-mini',
   },
 }

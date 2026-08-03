@@ -95,8 +95,8 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix_graded', 
     <div className={styles.wrap}>
       <div className={styles.meta}>
         <p className={styles.hint}>
-          Backed by the LibreChat agent with a live <code>clickhouse</code> MCP tool, not a canned
-          query, and scoped to <code>{reads}</code>. Slower than the other tabs and it can be
+          Backed by a live <code>run_query</code> tool against ClickHouse, not a canned query,
+          and scoped to <code>{reads}</code>. Slower than the other tabs and it can be
           wrong: verify anything load-bearing against the curve.
         </p>
         {thread.length > 0 && (

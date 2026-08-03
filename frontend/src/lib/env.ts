@@ -13,7 +13,9 @@ try {
   for (const line of contents.split('\n')) {
     const m = line.match(/^([A-Z_]+)=(.*)$/)
     const key = m?.[1]
-    if (key && !process.env[key]) process.env[key] = m?.[2] ?? ''
+    // Values pasted from librechat/.env arrive double-quoted; the quotes are shell syntax, not
+    // part of the credential.
+    if (key && !process.env[key]) process.env[key] = (m?.[2] ?? '').replace(/^"(.*)"$/, '$1')
   }
 } catch {
   // No repo-root .env (e.g. CI running only `next build`). Route handlers that need
@@ -53,3 +55,11 @@ export const CH_DATABASE = process.env.CH_DATABASE || 'default'
 export const LIBRECHAT_URL = process.env.LIBRECHAT_URL || 'http://localhost:3080'
 export const LIBRECHAT_API_KEY = process.env.LIBRECHAT_API_KEY || ''
 export const LIBRECHAT_AGENT_ID = process.env.LIBRECHAT_AGENT_ID || ''
+
+// Langfuse tracing for the bring-your-own-key Ask path. The direct-provider loop in lib/ask.ts
+// logs its own traces (LibreChat only traces requests that go THROUGH it, and BYOK requests do
+// not). Blank keys disable tracing rather than failing a question: the answer is the product,
+// the trace is telemetry.
+export const LANGFUSE_PUBLIC_KEY = process.env.LANGFUSE_PUBLIC_KEY || ''
+export const LANGFUSE_SECRET_KEY = process.env.LANGFUSE_SECRET_KEY || ''
+export const LANGFUSE_BASE_URL = process.env.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com'
