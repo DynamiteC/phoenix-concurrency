@@ -50,9 +50,11 @@ SELECT
     (SELECT count()              FROM concurrency_spike_events)                                     AS spike_events,
     (SELECT count()              FROM late_event_audit)                                             AS late_events
 -- READ BUDGET. Twelve scalar subqueries, each an aggregate over one table's key column. The
--- ceiling is dominated by session_state_transitions at 1.36M physical rows; the rest are minute
--- and session grain and are small by comparison.
-SETTINGS max_rows_to_read = 12000000,
-         max_bytes_to_read = 400000000,
+-- ceiling is raw_events, not session_state_transitions: max(event_timestamp) is a full column
+-- scan over the one table here whose predicate is unfrozen, so it grows for as long as the
+-- producer runs. It crossed the old 12M bound at 12.21M and took the whole v2 header down with
+-- it. This is headroom over live ingest, not a tight bound: revisit if ingest approaches it.
+SETTINGS max_rows_to_read = 60000000,
+         max_bytes_to_read = 2000000000,
          max_execution_time = 30,
          timeout_before_checking_execution_speed = 0;

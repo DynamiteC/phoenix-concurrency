@@ -1,4 +1,4 @@
-// Filter values for the v2 rail, read out of phoenix_next.
+// Filter values for the v2 rail, read out of phoenix_live.
 //
 // REUSES sql/queries/serving/dimension_values.sql rather than adding an insight-layer copy. That
 // file already emits the value/label pair the rail needs, already resolves content_id to its
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<DimensionsResp
   const dataset = resolveDataset(req.nextUrl.searchParams)
   try {
     const result = await chQuery(
-      servingSql('dimension_values.sql'),
+      servingSql('dimension_values.sql', dataset.tablePrefix),
       {},
       dataset.insights,
     )

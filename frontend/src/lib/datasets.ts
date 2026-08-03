@@ -1,7 +1,7 @@
 // WHICH DATASET A CONSOLE IS LOOKING AT: the client-safe half.
 //
 // The submission has to show two answers side by side: the original graded corpus that every
-// number in evidence/ was measured against, and the unseen day the organisers released on
+// number was measured against, and the unseen day the organisers released on
 // 2026-08-02 (docs/problem/spec.md, 7,000,000 events on 2026-07-31). A judge needs to see that the
 // pipeline generalises, which means seeing both without restarting anything.
 //
@@ -25,7 +25,7 @@ export const DATASET_LIST: Dataset[] = [
   {
     id: 'original',
     label: 'Original corpus',
-    blurb: 'The 905,558-event dataset every number in evidence/ was measured against.',
+    blurb: 'The 905,558-event graded dataset, served exactly as delivered.',
   },
   {
     id: 'unseen',

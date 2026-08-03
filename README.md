@@ -6,15 +6,15 @@ SonyLIV
 
 ## Project
 
-**Phoenix Concurrency**: foreground-only concurrency at streaming scale: counting only the
+**Phoenix Concurrency**: foreground-only concurrency at streaming scale, counting only the
 audience that is actually watching, and proving it.
 
 ## Team Members
 
-<!-- SUBMISSION BLOCKER: fill in before opening the PR. One line per member.
+<!-- TODO: fill in before opening the PR. One line per member.
      Format required by the root README: `- Name (GitHub handle)` -->
 
-- _Name_ (_@handle_)
+- TODO: Name (@handle)
 
 ## What it does
 
@@ -37,14 +37,22 @@ wrote, and `./scripts/check_docs.sh` fails the build when a claim and its eviden
 
 **http://the-phoenix.cricheroes.io**
 
-`/` is the concurrency console, `/v2` the insight console.
+`/` is the concurrency console: the curve, peak and both averages, the filter rail, and the
+dataset switch between the original corpus and the unseen day. `/v2` is the insight console, ten
+views over the audience-intelligence layer. Both print the ClickHouse query that produced what is
+on screen, with the table it read and its row and byte cost underneath.
+
+The live ingest is genuinely live: a producer container writes events continuously and a derive
+tick turns them into the served curve every 60 seconds, so the v2 numbers move while you watch.
+The unseen day is static by intent, because those are the graded answers and they must not move
+while a judge is reading them.
 
 ## Demo Video
 
-<!-- SUBMISSION BLOCKER: mandatory, 2 to 3 minutes, must show the curve and filters working
+<!-- TODO: mandatory, 2 to 3 minutes, must show the curve and filters working
      live and the LibreChat chat flow end to end. -->
 
-_Pending._
+TODO: demo video URL.
 
 ## Architecture
 
@@ -306,7 +314,7 @@ cd frontend && npm install && npm run dev    # http://localhost:3200
 
 ```
 docs/problem/            problem statement + data dictionary (given, do not edit)
-docs/                    STATUS.md first, then DECISIONS.md and FINAL_CHECKLIST.md
+docs/                    DECISIONS.md first, then DATA_MODEL.md
 sql/schema/              DDL, one file per table
 sql/queries/serving/     the ONLY home for shipped query text
 sql/queries/validation/  oracle and data-quality queries
@@ -321,11 +329,8 @@ data/                    gitignored, the CSVs never enter version control
 
 | Start here | |
 |---|---|
-| [`docs/STATUS.md`](docs/STATUS.md) | **Open this first.** Done, in flight, not started |
-| [`docs/FINAL_CHECKLIST.md`](docs/FINAL_CHECKLIST.md) | The submission gate list, with what is left |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Every modelling decision, its options, what each cost |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | **Open this first.** Every modelling decision, its options, what each cost |
 | [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) | Every table: purpose, key, cost, invariants |
 | [`docs/problem/DESIGN.md`](docs/problem/DESIGN.md) | Trade-offs, filter-shape read table, invariant audit |
-| [`docs/CLICKHOUSE_RULES_AUDIT.md`](docs/CLICKHOUSE_RULES_AUDIT.md) | The schema against the 31 best-practice rules |
 | [`docs/corrections.md`](docs/corrections.md) | Numbers we published wrong, and what caught them |
 | [`evidence/LEDGER.tsv`](evidence/LEDGER.tsv) | Any claim to the command that produced it, in one hop |

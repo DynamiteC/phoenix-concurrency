@@ -3,16 +3,18 @@
 #
 #   ./scripts/load.sh --dry-run data/ch-hackathon-raw-data.csv
 #   ./scripts/load.sh data/ch-hackathon-raw-data.csv raw_events_landing
-#   ./scripts/load.sh data/unseen.csv raw_events_landing phoenix_unseen
+#   TABLE_PREFIX=unseen_ ./scripts/load.sh data/unseen.csv raw_events_landing phoenix_graded
 #
-# The third argument is the TARGET DATABASE, defaulting to $CH_DATABASE and then to phoenix.
+# The third argument is the TARGET DATABASE, defaulting to $CH_DATABASE and then to phoenix_graded.
 # One database per dataset generation is the structural replacement for the social rule
-# "announce your DDL", which has now failed twice: an out-of-band ALTER added a column to a
-# table mid-run and cost a day. It also makes the unseen day
+# "announce your DDL": the unseen day lives in phoenix_unseen under normal table names.
+# TABLE_PREFIX (unset by default) exists for co-locating a second generation inside one
+# database when that is ever wanted; see scripts/prefix_sql.sh.
 #
-#     ./scripts/init_db.sh phoenix_unseen && ./scripts/load.sh <file> raw_events_landing phoenix_unseen
-#
-# rather than an improvised pipeline at hour 22.
+# TABLE_PREFIX, unset by default, is prepended to $TABLE before it is used as either the INSERT
+# target or the row-count table below, matching the shared name list in scripts/prefix_sql.sh
+# (not sourced here: this script never reads a .sql file, so there is no query text to rewrite,
+# only the one table name already passed as an argument).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; [ -f .env ] && . ./.env; set +a
@@ -20,8 +22,8 @@ set -a; [ -f .env ] && . ./.env; set +a
 DRY=0
 [ "${1:-}" = "--dry-run" ] && { DRY=1; shift; }
 FILE="${1:?usage: ./scripts/load.sh [--dry-run] <file.csv> [table] [database]}"
-TABLE="${2:-}"
-DB="${3:-${CH_DATABASE:-phoenix}}"
+TABLE="${2:+${TABLE_PREFIX:-}$2}"
+DB="${3:-${CH_DATABASE:-phoenix_graded}}"
 [ -f "$FILE" ] || { echo "no such file: $FILE" >&2; exit 1; }
 
 if [ "$DRY" = 1 ]; then
@@ -43,5 +45,5 @@ time clickhouse client --host "$CH_HOST" --secure --port "${CH_PORT:-9440}" \
 src=$(( $(wc -l < "$FILE") - 1 ))
 got="$(clickhouse client --host "$CH_HOST" --secure --port "${CH_PORT:-9440}" \
   --user "${CH_USER:-default}" --password "$CH_PASSWORD" --database "$DB" \
-  --query "SELECT count() FROM $( [ "$TABLE" = raw_events_landing ] && echo raw_events || echo "$TABLE" )")"
+  --query "SELECT count() FROM $( [ "$TABLE" = "${TABLE_PREFIX:-}raw_events_landing" ] && echo "${TABLE_PREFIX:-}raw_events" || echo "$TABLE" )")"
 echo "source data rows: $src   rows now in $DB: $got" >&2

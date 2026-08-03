@@ -8,7 +8,7 @@ export const metadata = {
 }
 
 /**
- * The v2 console, reading the insight layer in phoenix_next.
+ * The v2 console, reading the insight layer in phoenix_live.
  *
  * A SEPARATE ROUTE, not a tab on the v1 console: the data is a different generation living in a
  * different database, and keeping them apart means the validated concurrency console cannot

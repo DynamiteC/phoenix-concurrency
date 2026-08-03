@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS audience_minute_snapshot
     updated_at DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(version)
-PARTITION BY toYYYYMMDD(minute)
+PARTITION BY toYYYYMM(minute)
 -- minute leads here, unlike concurrency_deltas where the dimensions lead. The reason is that
 -- this table answers POINT-IN-TIME questions ("what did 10:56 look like") rather than
 -- cumulative ones. concurrency_deltas has to put the dimensions first because a cumulative sum

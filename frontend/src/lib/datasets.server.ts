@@ -21,15 +21,29 @@ export interface ResolvedDataset {
   concurrency: string
   /** Database holding the insight layer (v2: the ten insight tables). */
   insights: string
+  /**
+   * Table-name prefix for this generation, applied by lib/sql.ts and lib/insights.ts before a
+   * query runs. '' when the dataset lives in its own database under the normal table names
+   * (the current deployment: phoenix_unseen is a separate database). Set CH_UNSEEN_PREFIX
+   * (e.g. 'unseen_') only when the unseen day is co-located inside the original corpus's
+   * database and needs distinct table names.
+   *
+   * Read from server env at module scope, same as the database names above: it is never read
+   * from the request, so a client cannot ask this loader to rewrite an arbitrary name into an
+   * arbitrary other one.
+   */
+  tablePrefix: string
 }
 
-// The insight layer exists in phoenix_next and in phoenix_unseen. It does NOT exist in phoenix.
-const INSIGHT_DATABASE = process.env.CH_INSIGHT_DATABASE || 'phoenix_next'
+// The original corpus's insight layer lives in the live database (the one the producer/ticker
+// keep moving); the unseen day's insight layer lives alongside the unseen corpus.
+const INSIGHT_DATABASE = process.env.CH_INSIGHT_DATABASE || 'phoenix_live'
 const UNSEEN_DATABASE = process.env.CH_UNSEEN_DATABASE || 'phoenix_unseen'
+const UNSEEN_PREFIX = process.env.CH_UNSEEN_PREFIX || ''
 
 const DATABASES: Record<DatasetId, ResolvedDataset> = {
-  original: {id: 'original', concurrency: CH_DATABASE, insights: INSIGHT_DATABASE},
-  unseen: {id: 'unseen', concurrency: UNSEEN_DATABASE, insights: UNSEEN_DATABASE},
+  original: {id: 'original', concurrency: CH_DATABASE, insights: INSIGHT_DATABASE, tablePrefix: ''},
+  unseen: {id: 'unseen', concurrency: UNSEEN_DATABASE, insights: UNSEEN_DATABASE, tablePrefix: UNSEEN_PREFIX},
 }
 
 /**

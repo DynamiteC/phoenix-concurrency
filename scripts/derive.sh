@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # The full batch derivation, guarded so it cannot silently corrupt on a re-run.
 #
-#   ./scripts/derive.sh                    # derive into $CH_DATABASE, refuse if not empty
-#   ./scripts/derive.sh phoenix_unseen     # derive into a named database
-#   REBUILD=1 ./scripts/derive.sh phoenix_unseen   # truncate the derived tables first
+#   ./scripts/derive.sh                             # derive into $CH_DATABASE, refuse if not empty
+#   ./scripts/derive.sh phoenix_live                   # derive into a named database
+#   REBUILD=1 ./scripts/derive.sh phoenix_live         # truncate the derived tables first
+#   TABLE_PREFIX=unseen_ ./scripts/derive.sh phoenix_graded   # derive the unseen day's tables,
+#                                                              # frozen alongside the original corpus
+#
+# TABLE_PREFIX, unset by default, rewrites every physical name this script touches (the truncate
+# list, the pipeline files, and the invariant queries below) to ${TABLE_PREFIX}name, same
+# mechanism and shared name list as init_db.sh; see scripts/prefix_sql.sh.
 #
 # WHY THIS SCRIPT EXISTS, measured rather than argued: 02_merge_runs.sql and
 # 04_merge_user_runs.sql assert sign = +1 unconditionally and APPEND. Running either twice
@@ -29,20 +35,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/lib/evidence.sh
+. scripts/prefix_sql.sh
+trap cleanup_prefixed_sql_files EXIT
 
-DB="${1:-${CH_DATABASE:-phoenix}}"
+DB="${1:-${CH_DATABASE:-phoenix_graded}}"
 export CH_DATABASE="$DB"
 ch() { ./scripts/ch.sh "$@"; }
-val() { ch --format TSVRaw --query "$1" 2>/dev/null | head -1; }
+val() { ch --format TSVRaw --query "$(prefix_sql_text "$1")" 2>/dev/null | head -1; }
 
-echo "== target database: $DB" >&2
+echo "== target database: $DB${TABLE_PREFIX:+ (prefix: $TABLE_PREFIX)}" >&2
 
 existing="$(val "SELECT ifNull(sum(sign), 0) FROM session_minute_runs")"
 if [ "${existing:-0}" != "0" ]; then
   if [ "${REBUILD:-0}" = "1" ]; then
     echo "== REBUILD=1: truncating derived tables ($existing asserted runs present)" >&2
     for t in foreground_intervals session_minute_runs concurrency_deltas user_minute_runs user_concurrency_deltas; do
-      ch --query "TRUNCATE TABLE $t"
+      ch --query "TRUNCATE TABLE ${TABLE_PREFIX:-}$t"
     done
   else
     echo "REFUSING TO DERIVE: $DB already holds $existing asserted runs." >&2
@@ -55,17 +63,20 @@ fi
 
 t0=$(date +%s)
 echo "== 01 derive intervals" >&2
-ch --queries-file sql/pipeline/01_derive_intervals.sql --param_tolerance_s=90 --param_pause_inactive=1
+ch --queries-file "$(prefixed_sql_file sql/pipeline/01_derive_intervals.sql)" --param_tolerance_s=90 --param_pause_inactive=1
 echo "== 02 merge runs" >&2
-ch --queries-file sql/pipeline/02_merge_runs.sql
+ch --queries-file "$(prefixed_sql_file sql/pipeline/02_merge_runs.sql)"
 echo "== 04 merge user runs" >&2
-ch --queries-file sql/pipeline/04_merge_user_runs.sql
+ch --queries-file "$(prefixed_sql_file sql/pipeline/04_merge_user_runs.sql)"
 t1=$(date +%s)
 
 runs="$(val "SELECT sum(sign) FROM session_minute_runs")"
 closure="$(val "SELECT sum(delta) FROM concurrency_deltas")"
 dupes="$(val "SELECT max(s) FROM (SELECT sum(sign) AS s FROM session_minute_runs GROUP BY video_session_id, run_start, run_end HAVING s > 0)")"
 overlap="$(val "SELECT max(n) FROM (SELECT count() AS n FROM (SELECT video_session_id, run_start, run_end FROM session_minute_runs GROUP BY video_session_id, run_start, run_end HAVING sum(sign) > 0) ARRAY JOIN timeSlots(run_start, toUInt32(dateDiff('second', run_start, run_end)), 60) AS m GROUP BY video_session_id, m)")"
+# NOTE: `run_start`/`run_end`/`video_session_id` above are columns, not physical table names, so
+# prefix_sql_text (called inside val()) correctly leaves them alone; only the FROM/ARRAY JOIN
+# table references (session_minute_runs, concurrency_deltas) are rewritten under TABLE_PREFIX.
 
 verdict=PASS
 [ "$closure" = "0" ] || verdict=FAIL

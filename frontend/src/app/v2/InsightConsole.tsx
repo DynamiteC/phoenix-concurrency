@@ -60,6 +60,16 @@ function windowFor(range: RangeId, rawLatest: string | null): {from: string; to:
   return {from, to}
 }
 
+/* The unseen corpus's raw watermark is a dirty-tail row at 2026-08-03, two days past the graded
+ * day (2026-07-31) the dataset exists to show. Anchoring relative ranges there returns nothing,
+ * which reads as "no audience" rather than "wrong window". Same clamp v1 applies. */
+const UNSEEN_LATEST = '2026-08-01 00:00:00.000'
+
+function clampUnseenLatest(rawLatest: string | null, ds: DatasetId): string | null {
+  if (ds !== 'unseen' || !rawLatest) return rawLatest
+  return rawLatest > UNSEEN_LATEST ? UNSEEN_LATEST : rawLatest
+}
+
 const EMPTY_FILTERS: ClientFilters = {
   platform: '',
   country: '',
@@ -132,7 +142,7 @@ function DataTable({data}: {data: InsightTableResponse}) {
     return (
       <p className={styles.empty}>
         No rows. The query ran and the table it reads is empty for this window, which is a pipeline
-        state rather than an error: see the watermarks in the header.
+        state rather than an error: see the freshness dots in the status bar above.
       </p>
     )
   }
@@ -175,34 +185,58 @@ function DataTable({data}: {data: InsightTableResponse}) {
   )
 }
 
-/** Watermark row. Its job is to make staleness impossible to miss, so the lag is computed and
- *  labelled rather than left for the reader to subtract two timestamps in their head. */
-function Watermarks({status}: {status: InsightStatusResponse}) {
+/**
+ * Status, collapsed to one line. This used to be a five-cell grid (Watermarks, below) repeated
+ * identically above every one of the ten views; the freshness fact it carries is real but it
+ * does not need five cells' worth of height to say "current" nine times out of five. One dot per
+ * table plus the number a viewer actually asks first (how far behind is the laggard) says the
+ * same thing at a tenth of the height. The full per-table timestamps are one hover away rather
+ * than deleted: `title` carries what each cell used to show in full.
+ */
+function StatusLine({status}: {status: InsightStatusResponse}) {
   const raw = status.rawLatest ? Date.parse(`${status.rawLatest.replace(' ', 'T')}Z`) : 0
-  const rows: {label: string; at: string | null; extra: string}[] = [
-    {label: 'session facts', at: status.factsLatest, extra: `${nf.format(status.factsSessions)} sessions`},
-    {label: 'minute snapshot', at: status.snapshotLatest, extra: `${nf.format(status.snapshotMinutes)} minutes`},
-    {label: 'state transitions', at: status.transitionsLatest, extra: `${nf.format(status.transitionsAsserted)} asserted`},
-    {label: 'playback health', at: status.healthLatest, extra: ''},
-    {label: 'entry cohorts', at: status.cohortsLatest, extra: ''},
+  const rows: {label: string; at: string | null}[] = [
+    {label: 'facts', at: status.factsLatest},
+    {label: 'snapshot', at: status.snapshotLatest},
+    {label: 'transitions', at: status.transitionsLatest},
+    {label: 'health', at: status.healthLatest},
+    {label: 'cohorts', at: status.cohortsLatest},
   ]
+  let worstLagMin: number | null = null
   return (
-    <div className={styles.watermarks}>
+    <div className={styles.statusLine}>
+      <span className={styles.statusItem}>
+        reading <code className={styles.statusDb}>{status.database}</code>
+      </span>
+      <span className={styles.statusItem}>
+        {nf.format(status.rawEvents)} raw events, latest {istDateTime(status.rawLatest)} IST
+      </span>
       {rows.map((r) => {
         const t = r.at ? Date.parse(`${r.at.replace(' ', 'T')}Z`) : 0
         const lagMin = raw && t ? Math.round((raw - t) / 60000) : null
+        if (lagMin != null && (worstLagMin == null || lagMin > worstLagMin)) worstLagMin = lagMin
         const stale = lagMin != null && lagMin > 15
         return (
-          <div key={r.label} className={styles.watermark}>
-            <span className={styles.wmLabel}>{r.label}</span>
-            <span className={styles.wmValue}>{istDateTime(r.at)}</span>
-            <span className={`${styles.wmLag} ${stale ? styles.wmLagStale : ''}`}>
-              {lagMin == null ? 'no data' : lagMin <= 0 ? 'current' : `${nf.format(lagMin)} min behind`}
-            </span>
-            {r.extra && <span className={styles.wmExtra}>{r.extra}</span>}
-          </div>
+          <span
+            key={r.label}
+            className={styles.statusItem}
+            title={`${r.label}: ${istDateTime(r.at)} IST${r.at ? '' : ', no data yet'}`}
+          >
+            <span
+              className={`${styles.statusDot} ${stale ? styles.statusDotStale : lagMin == null ? styles.statusDotUnknown : ''}`}
+              aria-hidden="true"
+            />
+            {r.label}
+          </span>
         )
       })}
+      <span className={styles.statusItem}>
+        {worstLagMin == null
+          ? 'no derivation yet'
+          : worstLagMin <= 0
+            ? 'all current'
+            : `${nf.format(worstLagMin)} min behind, worst table`}
+      </span>
     </div>
   )
 }
@@ -217,8 +251,14 @@ export default function InsightConsole() {
   const [data, setData] = useState<InsightTableResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  // Which generation the insight layer answers from. phoenix_unseen carries the same ten
-  // insight tables as phoenix_next, so every view works against either.
+  // Filters and range used to be a permanent block in the sidebar, on screen under every one of
+  // the ten views whether or not a viewer was touching them. Collapsed behind a toggle now: the
+  // count on the toggle label says whether anything is actually set, so closing this hides
+  // nothing a viewer would have to go looking for.
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  // Which generation the insight layer answers from. The unseen day's insight tables, frozen
+  // in phoenix_unseen, carry the same ten tables as the live ones in phoenix_live, so every
+  // view works against either.
   const [dataset, setDataset] = useState<DatasetId>('original')
 
   // Refetched per dataset: the two generations carry different content ids, so a stale rail
@@ -247,7 +287,7 @@ export default function InsightConsole() {
     if (id === 'ask') { setData(null); setError(null); setLoading(false); return }
     setLoading(true)
     setData(null)
-    const {from, to} = windowFor(r, rawLatest)
+    const {from, to} = windowFor(r, clampUnseenLatest(rawLatest, ds))
     const qs = new URLSearchParams({from, to})
     if (f.platform) qs.set('platform', f.platform)
     if (f.country) qs.set('country', f.country)
@@ -295,6 +335,18 @@ export default function InsightConsole() {
   const spike = status?.spikeEvents ?? 0
   const late = status?.lateEvents ?? 0
 
+  // Counted through `inert`, not straight off `filters`: a value the current view's query never
+  // reads is not "doing something" in the sense this badge claims, and the toggle sits collapsed
+  // by default, so the per-control inert mark that would otherwise say so is hidden. Showing "2"
+  // for two filters the view silently ignores is the exact confusion `inert` exists to prevent.
+  const activeFilterCount = [
+    filters.platform && !inert('platform'),
+    filters.country && !inert('country'),
+    filters.video_type && !inert('video_type'),
+    filters.app_version && !inert('app_version'),
+    filters.content_id && !inert('content_id'),
+  ].filter(Boolean).length
+
   return (
     <>
       <aside className={styles.sidebar}>
@@ -331,92 +383,108 @@ export default function InsightConsole() {
           ))}
         </nav>
 
-        <div className={styles.rangeBlock}>
-          <span className={styles.footLabel}>Dimensions</span>
-          {DIMS.map(({key, label}) => (
-            <div key={key} className={styles.field}>
-              <label className={styles.fieldLabel} htmlFor={key}>
-                {label}
-                {inert(key) && <span className={styles.inertMark}> not in {data?.reads}</span>}
-              </label>
-              <select
-                id={key}
-                className={styles.select}
-                disabled={inert(key)}
-                title={inert(key) ? `${data?.reads} does not carry ${key}` : undefined}
-                value={filters[key]}
-                onChange={(e) => setFilters({...filters, [key]: e.target.value})}
-              >
-                <option value="">all</option>
-                {dims.filter((d) => d.dim === key).map((d) => (
-                  <option key={d.value} value={d.value}>{d.label}</option>
-                ))}
-              </select>
-            </div>
-          ))}
-
-          <div className={styles.field}>
-            <label className={styles.fieldLabel} htmlFor="content">
-              Content
-              {inert('content_id') && <span className={styles.inertMark}> not in {data?.reads}</span>}
-            </label>
-            {/* By TITLE, never by id, for the reason the v1 rail gives: thousands of content ids
-                reach the serving layer and nobody filtering a dashboard knows which 8-digit number
-                is which show. Local text state, because deriving the input value from content_id
-                erases every keystroke that does not yet complete a real title. */}
-            <input
-              id="content"
-              className={styles.select}
-              list="v2-content-titles"
-              disabled={inert('content_id')}
-              title={inert('content_id') ? `${data?.reads} does not carry content_id` : undefined}
-              placeholder={inert('content_id') ? 'not filterable here' : 'all titles'}
-              value={contentText}
-              onChange={(e) => {
-                setContentText(e.target.value)
-                const match = dims.find((d) => d.dim === 'content' && d.label === e.target.value)
-                setFilters({...filters, content_id: Number(match?.value ?? 0)})
-              }}
-            />
-            <datalist id="v2-content-titles">
-              {dims.filter((d) => d.dim === 'content').map((d) => (
-                <option key={d.value} value={d.label}/>
-              ))}
-            </datalist>
-          </div>
-
-          <hr className={styles.rule}/>
-
-          <label className={styles.footLabel} htmlFor="range">Window</label>
-          <select
-            id="range"
-            className={styles.select}
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeId)}
-          >
-            {RANGES.map((r) => (
-              <option key={r.id} value={r.id}>{r.label}</option>
-            ))}
-          </select>
-          <p className={styles.footNote}>
-            Anchored on the latest ingested event, not on the wall clock: the insight layer lags
-            ingest, so a window measured against a real clock can land inside the gap and return
-            nothing.
-          </p>
-        </div>
-
         <div className={styles.sidebarFoot}>
           <span className={styles.footLabel}>reading</span>
-          <code className={styles.footValue}>{status?.database ?? 'phoenix_next'}</code>
-          {status && (
-            <p className={styles.footNote}>
-              {nf.format(status.rawEvents)} raw events, latest {istDateTime(status.rawLatest)} IST.
-            </p>
-          )}
+          <code className={styles.footValue}>{status?.database ?? 'phoenix_live'}</code>
         </div>
       </aside>
 
       <main className={styles.main}>
+        {/* Status and filters used to be two fixed blocks, a Watermarks grid here and a rangeBlock
+            in the sidebar, both repeated unchanged across all ten views. One sticky bar now: the
+            freshness dots stay visible while scrolling a long table, and the filter controls, which
+            most questions do not touch, are collapsed behind a toggle rather than always on screen. */}
+        <div className={styles.statusBar}>
+          <div className={styles.statusBarRow}>
+            {status ? <StatusLine status={status}/> : <span className={styles.statusItem}>reading status…</span>}
+            <button
+              type="button"
+              className={styles.filterToggle}
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''} {filtersOpen ? '▴' : '▾'}
+            </button>
+          </div>
+
+          {filtersOpen && (
+            <div className={styles.filterPanel}>
+              {DIMS.map(({key, label}) => (
+                <div key={key} className={styles.field}>
+                  <label className={styles.fieldLabel} htmlFor={key}>
+                    {label}
+                    {inert(key) && <span className={styles.inertMark}> not in {data?.reads}</span>}
+                  </label>
+                  <select
+                    id={key}
+                    className={styles.select}
+                    disabled={inert(key)}
+                    title={inert(key) ? `${data?.reads} does not carry ${key}` : undefined}
+                    value={filters[key]}
+                    onChange={(e) => setFilters({...filters, [key]: e.target.value})}
+                  >
+                    <option value="">all</option>
+                    {dims.filter((d) => d.dim === key).map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="content">
+                  Content
+                  {inert('content_id') && <span className={styles.inertMark}> not in {data?.reads}</span>}
+                </label>
+                {/* By TITLE, never by id, for the reason the v1 rail gives: thousands of content
+                    ids reach the serving layer and nobody filtering a dashboard knows which
+                    8-digit number is which show. Local text state, because deriving the input
+                    value from content_id erases every keystroke that does not yet complete a
+                    real title. */}
+                <input
+                  id="content"
+                  className={styles.select}
+                  list="v2-content-titles"
+                  disabled={inert('content_id')}
+                  title={inert('content_id') ? `${data?.reads} does not carry content_id` : undefined}
+                  placeholder={inert('content_id') ? 'not filterable here' : 'all titles'}
+                  value={contentText}
+                  onChange={(e) => {
+                    setContentText(e.target.value)
+                    const match = dims.find((d) => d.dim === 'content' && d.label === e.target.value)
+                    setFilters({...filters, content_id: Number(match?.value ?? 0)})
+                  }}
+                />
+                <datalist id="v2-content-titles">
+                  {dims.filter((d) => d.dim === 'content').map((d) => (
+                    <option key={d.value} value={d.label}/>
+                  ))}
+                </datalist>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.fieldLabel} htmlFor="range">Window</label>
+                <select
+                  id="range"
+                  className={styles.select}
+                  value={range}
+                  onChange={(e) => setRange(e.target.value as RangeId)}
+                >
+                  {RANGES.map((r) => (
+                    <option key={r.id} value={r.id}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <p className={styles.footNote}>
+                Every range is anchored on the latest ingested event, not on the wall clock: the
+                insight layer lags ingest, so a window measured against a real clock can land
+                inside the gap and return nothing.
+              </p>
+            </div>
+          )}
+        </div>
+
         <header className={styles.hero}>
           <h1 className={styles.heroTitle}>
             Concurrency tells you <mark className={styles.mark}>what</mark> changed. This tells
@@ -428,8 +496,6 @@ export default function InsightConsole() {
           </p>
         </header>
 
-        {status && <Watermarks status={status}/>}
-
         {(spike === 0 || late === 0) && (
           <div className={styles.notice}>
             <strong>Two tables are still empty and their views are therefore not listed:</strong>{' '}
@@ -440,7 +506,18 @@ export default function InsightConsole() {
           </div>
         )}
 
-        {view === 'ask' && <AskAI endpoint="/api/v2/ask" reads="phoenix_next"/>}
+        {view === 'ask' && (
+          <AskAI
+            endpoint="/api/v2/ask"
+            reads="phoenix_live"
+            starterQuestions={[
+              'What caused the largest concurrency spike in the last 3 hours?',
+              'Which app version has the worst playback error rate?',
+              'Which content do viewers switch away from most?',
+              'How many sessions arrived late in the last hour?',
+            ]}
+          />
+        )}
 
         {error && <p className={styles.error}>{error}</p>}
 
@@ -448,8 +525,8 @@ export default function InsightConsole() {
           <section className={styles.panel}>
             <div className={styles.panelHead}>
               <h2 className={styles.panelTitle}>{data.question}</h2>
-              {/* Gate B evidence and the query itself, open by default: on this console the query
-                  is the thing being examined, not a footnote to a chart. */}
+              {/* Collapsed by default: the summary line already carries the cost readout (rows,
+                  bytes, ms), and the SQL is one click away for whoever is examining it. */}
               <QueryPanel
                 sql={[data.sql]}
                 files={[data.sqlFile]}
@@ -458,7 +535,6 @@ export default function InsightConsole() {
                 bytesRead={data.bytesRead}
                 serverMs={data.serverMs}
                 wallMs={data.ms}
-                defaultOpen
               />
               {data.ignores.length > 0 && (
                 <p className={styles.ignores}>

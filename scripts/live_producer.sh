@@ -54,6 +54,14 @@ PERIOD="${PERIOD:-30}"         # seconds between cycles. MUST stay under toleran
 CYCLES="${CYCLES:-120}"        # 120 x 30s = one hour. 0 = until interrupted.
 HEARTBEATS="${HEARTBEATS:-2}"  # keepalives per session per cycle (~15s cadence at PERIOD=30)
 LIFETIME_CYCLES="${LIFETIME_CYCLES:-12}"  # mean session life; 12 x 30s = 6 min, corpus median 11.9
+# v2 COVERAGE: a periodic flash-crowd surge, one stream, one cycle every SPIKE_PERIOD_CYCLES.
+# Every other stream only ramps/plateaus/decays smoothly (the curve() function below), which
+# never gives sql/insights/spike/refresh_spike_events.sql a fast-in/fast-out shape to classify:
+# growth_percent and minutes_to_peak both need a jump, not a ramp. SPIKE_STREAM defaults to the
+# head stream so the surge rides on top of an audience large enough to be a believable spike.
+SPIKE_PERIOD_CYCLES="${SPIKE_PERIOD_CYCLES:-40}"
+SPIKE_STREAM="${SPIKE_STREAM:-0}"
+SPIKE_PCT="${SPIKE_PCT:-40}"   # surge size, percent of that stream's own scaled share
 STATE=".live_producer.$DB"
 SQLFILE="$(mktemp -t phoenix-live-producer.XXXXXX.sql)"
 trap 'rm -f "$SQLFILE"' EXIT
@@ -222,6 +230,14 @@ while :; do
     # Scale the schedule's shares (which sum to ~10,000) to the requested TARGET.
     share=$(( share * TARGET / 10000 ))
     target=$(curve "$share" "$pk" "$dc" "$en" "$elapsed_min")
+
+    # PERIODIC CONCURRENCY SPIKE. One cycle in SPIKE_PERIOD_CYCLES, one stream, target jumps by
+    # SPIKE_PCT on top of the scheduled curve; every other cycle this is a no-op. The very next
+    # cycle's target falls back to the plain curve value, so churn (below) drains the surge back
+    # out over the following cycle or two -- brief by construction, not by luck.
+    if [ "$i" -eq "$SPIKE_STREAM" ] && [ $(( cycle_abs % SPIKE_PERIOD_CYCLES )) -eq 0 ]; then
+      target=$(( target + share * SPIKE_PCT / 100 ))
+    fi
     alive=$(( HI[i] - LO[i] ))
 
     # Natural turnover plus whatever the curve demands. Turnover alone gives every session a
@@ -319,22 +335,72 @@ while :; do
             FROM numbers($(( span / 7 )))) WHERE number < $(( new_hi - arrive ))"
     fi
 
+    # v2 COVERAGE: playback health + app-version health. A few sessions per thousand throw a
+    # VideoError; sql/insights/pipeline/08_refresh_playback_health.sql reads event_type =
+    # 'VideoError' and nothing else was ever emitting one, so video_error_rate sat at zero for
+    # every app_version, always. The per-mille threshold is a function of tp.2 (app_version), not
+    # a flat constant, so different app versions land at genuinely different error rates instead
+    # of all reading the same non-zero number -- which is the actual question an app-version
+    # health view asks. cityHash64 on the version string, not the session number, so the rate is
+    # stable per version across cycles rather than reshuffling every tick.
+    if [ $(( new_hi - arrive - new_lo )) -gt 0 ]; then
+      errband="(2 + cityHash64(tp.2, 'errband') % 6)"
+      BRANCHES="${BRANCHES} UNION ALL
+      SELECT $cid, $sid, $uid, 'VideoError', 'VideoError', ts - $jit,
+             $dims, ts - $jit$(evid err)
+      FROM (SELECT $new_lo + number AS number, $tup AS tp
+            FROM numbers($(( new_hi - arrive - new_lo ))))
+      WHERE cityHash64(number, 'err') % 1000 < $errband"
+    fi
+
+    # v2 COVERAGE: lateness. Every event above is stamped within PERIOD seconds of arrival, so
+    # late_event_audit (sql/insights/schema/09) never saw anything but on_time rows: arrival_ts is
+    # materialised at real insert time and event_timestamp always trailed it by well under
+    # tolerance_s. One heartbeat in 500 backdates event_timestamp by 90-3690 seconds instead,
+    # which spans both the late_acceptable and late_after_finalization classes
+    # (sql/insights/benchmark/lateness_audit.sql's boundary is 3600s) without touching the
+    # on-time population the concurrency curve depends on.
+    if [ $(( new_hi - arrive - new_lo )) -gt 0 ]; then
+      latelag="(90 + cityHash64(number, 'late') % 3600)"
+      BRANCHES="${BRANCHES} UNION ALL
+      SELECT $cid, $sid, $uid, 'VideoHeartbeat', hb[(number % 5) + 1],
+             ts - $latelag * 1000, $dims, ts - $latelag * 1000$(evid lt)
+      FROM (SELECT $new_lo + number AS number, $tup AS tp
+            FROM numbers($(( new_hi - arrive - new_lo ))))
+      WHERE number % 500 = 0"
+    fi
+
+    # v2 COVERAGE: platform handoff. sql/insights/pipeline/06_refresh_user_transitions.sql's
+    # second INSERT (user_platform_transitions) needs the SAME user_id and SAME content_id on
+    # TWO platforms with a gap under 300s and no overlap, to classify 'handoff' rather than
+    # 'parallel_multi_device'. The 1-in-8 neighbour-reuse trick above gives two CONCURRENT
+    # sessions of one user (by design, for user_concurrency_deltas) and so mostly produces
+    # overlap, not a handoff. This is a separate, deliberate mechanic: 1 arrival in 40 gets a
+    # short PRIOR session synthesised for the identical uid and identical $cid, on the OTHER
+    # platform family (hotup swaps the tvt/mot arrays that $tup draws from), ending 60-280
+    # seconds before this arrival -- inside the 300s window, never overlapping it.
+    if [ "$arrive" -gt 0 ]; then
+      hotup="if(cityHash64(number, 'p') % 100 < $tvs, mot[(cityHash64(number,'m') % length(mot)) + 1],
+                                                       tvt[(cityHash64(number,'t') % length(tvt)) + 1])"
+      hodims="hotp.1, hotp.2, $cty, hotp.3, hotp.4, hotp.5"
+      hogap="(60 + cityHash64(number, 'hogap') % 220)"
+      hodur="(30 + cityHash64(number, 'hodur') % 60)"
+      BRANCHES="${BRANCHES} UNION ALL
+      SELECT $cid, concat('lsho_${RUN}_${i}_', toString(number)), $uid, et,
+             if(et = 'VideoSessionStart', 'Start', 'VideoSessionEnd'),
+             if(et = 'VideoSessionStart', ts - $jit - ($hogap + $hodur) * 1000, ts - $jit - $hogap * 1000),
+             $hodims,
+             if(et = 'VideoSessionStart', ts - $jit - ($hogap + $hodur) * 1000, ts - $jit - $hogap * 1000)$(evid ho)
+      FROM (SELECT ${HI[i]} + number AS number, $hotup AS hotp
+            FROM numbers($arrive))
+      ARRAY JOIN ['VideoSessionStart','VideoSessionEnd'] AS et
+      WHERE number % 40 = 0"
+    fi
+
     LO[$i]=$new_lo; HI[$i]=$new_hi
     tot_arr=$(( tot_arr + arrive )); tot_dep=$(( tot_dep + depart ))
     tot_alive=$(( tot_alive + new_hi - new_lo ))
   done
-
-  # NOTHING TO EMIT IS NOT AN ERROR. Every branch above is conditional, so a cycle where no stream
-  # arrives, departs or heartbeats leaves $BRANCHES empty -- and the heredoc below then emits a
-  # bare WITH clause with no SELECT after it. Measured 2026-08-02: once the population reached
-  # zero, every cycle failed with "Code: 62 Syntax error: failed at position 1644 (end of query)",
-  # burned its three retries, logged "population held, next cycle will catch up", and held a
-  # population of zero -- so the next cycle was identical. Ingest stopped for good while the
-  # container stayed up and the log scrolled. Skip the cycle instead.
-  # Skips the INSERT only. NOT `continue`: that would jump past save_state and the period sleep,
-  # turning a quiet cycle into a hot loop.
-  emit=1
-  [ -z "${BRANCHES// }" ] && emit=0
 
   # ONE statement, all fifteen streams, all five event classes.
   # Written to a file rather than passed as argv. Even hoisted, a 15-stream statement is tens of
@@ -377,9 +443,8 @@ SQL
   # done: measured p50 53,972 rows per statement, inside the 10K-100K band insert-batch-size asks
   # for, at one statement per 30s. Async would buffer an already correctly-sized batch, adding a
   # copy and a flush delay to solve a problem this producer does not have.
-  ok="$emit"
+  ok=0
   for attempt in 1 2 3; do
-    [ "$emit" = "0" ] && { echo "  cycle $c no events to emit, insert skipped" >&2; break; }
     if chw --connect_timeout=30 --receive_timeout=120 --queries-file "$SQLFILE"; then
       ok=1; break
     fi

@@ -216,7 +216,7 @@ key. That query scans by design, and saying so is better than asserting a key th
 production (`TOO_MANY_ROWS`, observed at 262k-395k rows depending on merge state) on nothing more
 exotic than the default 3h dashboard view. Because `reach` has no primary-key prune, its read cost
 tracks whatever part-level skipping the background merge scheduler happens to leave standing for
-the frozen boundary, not corpus size alone — direct measurement the same day showed rows_read
+the frozen boundary, not corpus size alone, direct measurement the same day showed rows_read
 swinging between ~34k and ~395k across identical filters. A tight 3x-of-one-sample multiple is not
 a safe ceiling on a figure that volatile, so the new ceiling (`max_rows_to_read = 2,000,000`,
 `max_bytes_to_read = 80,000,000`) is set with real headroom above every reading observed that day

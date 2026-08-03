@@ -67,5 +67,5 @@
   margin: 0.4rem 0 0;
   font-size: 0.7rem;
   line-height: 1.45;
-  color: var(--muted, #8b8b8b);
+  color: var(--ink-dim);
 }

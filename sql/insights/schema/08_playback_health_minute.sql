@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS playback_health_minute
     updated_at DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(version)
-PARTITION BY toYYYYMMDD(minute)
+PARTITION BY toYYYYMM(minute)
 -- video_type ADDED to the key, closing the same dedup hazard as content_entry_cohorts: the
 -- refresh writes at a grain including video_type, and ORDER BY is this ReplacingMergeTree's dedup
 -- key, so without it two rows differing only by video_type would collapse to one.

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<InsightStatusR
   const dataset = resolveDataset(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
-    const result = await insightQuery(insightSql('insight_status.sql'), {}, dataset.insights)
+    const result = await insightQuery(insightSql('insight_status.sql', dataset.tablePrefix), {}, dataset.insights)
     const row = result.data[0]
     if (!row) throw new Error('insight_status.sql returned no rows')
     const col = columnReader(result.meta)

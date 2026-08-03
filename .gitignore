@@ -1,28 +1,25 @@
+# Secrets. Both env files hold live credentials (ClickHouse, Langfuse, LibreChat secrets) and
+# sync to the EC2 host via rsync/FileZilla, never via git.
 .env
-*.csv
-data/*
-!data/.gitkeep
-node_modules
-__pycache__
-*.log
-dist
-.venv
-.dual-graph/
-.idea/
-.derive_watermark.*
-.derive_watermark.*.lock
-derive_tick.*.log
+librechat/.env
 
-# Local ingest cursor: which synthetic sessions are still alive. Runtime state, like
-# .derive_watermark.*, and meaningless on another machine.
-.ingest_arrivals.*
+# TLS key material.
+deploy/ssl/
+ssl_star_dot_io/
 
-# Live-demo runtime artifacts. Logs and producer/orchestrator state are per-run and per-machine;
-# committing them would make every demo run show up as a diff.
-*.log
+# LibreChat runtime state (mongo data, uploads, logs).
+librechat/data-node/
+librechat/uploads/
+librechat/logs/
+librechat/meili_data*/
+
+# Build output and dependencies.
+node_modules/
+frontend/.next/
+frontend/node_modules/
+
+# Runtime artifacts.
+evidence/
 .live_producer.*
-.live_demo.*.pids
-.ingest_arrivals.*
-# Generated spike fixtures: reproducible byte-for-byte from generate_spike_scenarios.py with the
-# recorded seed, so the manifest is the artifact worth keeping, not the 120 MB of CSV.
-data/generated/*.csv
+.derive_watermark.*
+.idea/

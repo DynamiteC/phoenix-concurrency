@@ -41,13 +41,14 @@ export const CH_DATABASE = process.env.CH_DATABASE || 'default'
 // (see lib/datasets.ts): the original corpus and the unseen day are separate databases, so the
 // boundary is which table the query reads rather than a timestamp the reader has to trust.
 //
-// Verified before removal: both phoenix and phoenix_next hold 905,558 rows and ZERO rows at or
-// after 2026-08-01, so the predicate was already matching everything. Removing it changes no
-// number in evidence/, which is why this was safe to do at all.
+// Verified before removal: both the original-corpus tables in phoenix_graded and their copy in
+// phoenix_live hold 905,558 rows and ZERO rows at or after 2026-08-01, so the predicate was already
+// matching everything. Removing it changes no number in evidence/, which is why this was safe to
+// do at all.
 
 // LibreChat's OpenAI-compatible remote-agent endpoint (see /api/ask). LIBRECHAT_API_KEY and
 // LIBRECHAT_AGENT_ID are blank until the user creates a key in the LibreChat UI (Settings ->
-// API Keys) and copies the Project Assistant agent's id — /api/ask fails loudly per-request
+// API Keys) and copies the Project Assistant agent's id: /api/ask fails loudly per-request
 // until both are set, same pattern as CH_HOST above.
 export const LIBRECHAT_URL = process.env.LIBRECHAT_URL || 'http://localhost:3080'
 export const LIBRECHAT_API_KEY = process.env.LIBRECHAT_API_KEY || ''

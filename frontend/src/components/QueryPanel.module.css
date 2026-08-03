@@ -1,7 +1,5 @@
-/* Collapsed by default on the concurrency console, where the chart is the answer and the query is
-   the evidence behind it; open on the insight console, where the query is the thing being read.
-   Either way the cost line stays visible in the summary, so a reader never has to expand anything
-   to see what the answer cost. */
+/* Collapsed by default on both consoles: the cost line stays visible in the summary, so a reader
+   never has to expand anything to see what the answer cost, and the SQL is one click away. */
 
 .panel {
   border: 1px solid var(--line);
@@ -56,6 +54,13 @@
 
 .cost code {
   color: var(--ink);
+}
+
+/* The numbers a reader scans for (rows, bytes, ms) carry full ink and weight; the words around
+   them stay dim. Same hierarchy as the stat readout, so the two surfaces read consistently. */
+.cost strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .figure {

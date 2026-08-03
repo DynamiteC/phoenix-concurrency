@@ -9,21 +9,32 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {chQuery} from './clickhouse'
 import {PublicError} from './apiError'
+import {withTablePrefix} from './physicalTableNames'
 import type {Filters} from './types'
 
-/** The insight layer lives only here. `phoenix` has none of these tables. */
-export const INSIGHT_DATABASE = process.env.CH_INSIGHT_DATABASE || 'phoenix_next'
+/** The insight layer lives only here. `phoenix_graded`'s original-corpus tables have none of these. */
+export const INSIGHT_DATABASE = process.env.CH_INSIGHT_DATABASE || 'phoenix_live'
 
 const INSIGHT_DIR = path.join(process.cwd(), '..', 'sql', 'insights', 'benchmark')
 
 // Read once per file per process, the same contract as lib/sql.ts: a changed .sql file is picked
 // up by a restart rather than mid-session, so the numbers on screen cannot change without the
 // process that reported them changing too.
+//
+// Keyed by name AND prefix, same reason as lib/sql.ts's cache: the original corpus and the
+// unseen day request the same filename with different prefixes.
 const cache = new Map<string, string>()
 
-/** Reads a query from sql/insights/benchmark/ by filename, e.g. insightSql('state_flow.sql'). */
-export function insightSql(name: string): string {
-  const cached = cache.get(name)
+/**
+ * Reads a query from sql/insights/benchmark/ by filename, e.g. insightSql('state_flow.sql').
+ *
+ * `tablePrefix` comes from the resolved dataset (lib/datasets.server.ts), never from the request.
+ * See lib/sql.ts's servingSql for the identical contract and lib/physicalTableNames.ts for the
+ * shared name list both loaders rewrite against.
+ */
+export function insightSql(name: string, tablePrefix: string = ''): string {
+  const cacheKey = `${tablePrefix} ${name}`
+  const cached = cache.get(cacheKey)
   if (cached !== undefined) return cached
   let text: string
   try {
@@ -34,7 +45,8 @@ export function insightSql(name: string): string {
         `repo checkout; run it from the frontend/ directory inside the repo. (${(cause as Error).message})`,
     )
   }
-  cache.set(name, text)
+  text = withTablePrefix(text, tablePrefix)
+  cache.set(cacheKey, text)
   return text
 }
 

@@ -52,6 +52,45 @@
   letter-spacing: 0.04em;
 }
 
+/* Suggested filters, unseen dataset only. A hairline strip like the toolbar above it, not a
+   boxed panel: chips are the only new surface this view introduces. */
+.suggested {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.suggestedLabel {
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.chip:hover {
+  border-color: var(--line-bright);
+  color: var(--ink);
+}
+
+.chipActive {
+  color: var(--bg);
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
 .stats {
   display: flex;
   flex-direction: column;

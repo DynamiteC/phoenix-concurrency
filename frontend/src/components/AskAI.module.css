@@ -161,6 +161,37 @@
   color: var(--alert);
 }
 
+/* Starter chips: same chassis as the dataset switch and provider buttons, so a first-time visitor
+   reads them as "part of this console" rather than a generic chat-bot suggestion tray. */
+.starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.starterChip {
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--ink-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.starterChip:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--line-bright);
+}
+
+.starterChip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .inputRow {
   display: flex;
   gap: 0.6rem;
@@ -209,6 +240,12 @@
 .send:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.langfuseNote {
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
 }
 
 /* BRING-YOUR-OWN-KEY BAR.
@@ -280,7 +317,7 @@
   margin: 0;
   font-size: 0.7rem;
   line-height: 1.5;
-  color: var(--muted, #8b8b8b);
+  color: var(--ink-dim);
 }
 
 .keyClear {

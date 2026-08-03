@@ -1,22 +1,23 @@
-# THE DEMO HOST. One published port, 80, and everything behind it.
+# THE DEMO HOST. Publishes 80 (redirect), 443 (the site), and 3080 (LibreChat direct).
 #
-#   docker compose up -d --build
-#   docker compose --profile chat up -d          # also bring up LibreChat for the v2 Ask tab
+#   docker compose up -d --build                 # core: proxy, web, producer, ticker
+#   docker compose --profile chat up -d --build  # also LibreChat (api, mongodb, mcp-clickhouse)
 #
 # WHAT RUNS AND WHY EACH ONE IS HERE:
 #
-#   proxy     nginx on 80. The only thing the host exposes.
+#   proxy     nginx on 80/443. 80 only redirects to https.
 #   web       both consoles. / is v1, /v2 is the insight console.
-#   producer  continuous event generation into phoenix_next, so v2 is genuinely live rather than
+#   producer  continuous event generation into phoenix_live, so v2 is genuinely live rather than
 #             a recording. This is the "replay a live-event day" demo the problem statement
 #             suggests, running for real while a judge watches.
 #   ticker    the derive loop. Without it the producer writes forever and both consoles freeze,
 #             because nothing serves raw events by design.
 #
 # THE DIVISION OF LABOUR BETWEEN THE TWO CONSOLES:
-#   v1  reads the UNSEEN DAY as delivered, plus the original corpus behind the dataset switch.
-#       Static by intent: these are the graded answers and they must not move while being read.
-#   v2  reads phoenix_next, which the producer and ticker keep moving. This is where "the curve
+#   v1  reads the UNSEEN DAY as delivered (phoenix_unseen), plus the original corpus
+#       (phoenix_graded) behind the dataset switch. Both frozen: these are the graded answers
+#       and they must not move while being read.
+#   v2  reads phoenix_live, which the producer and ticker keep moving. This is where "the curve
 #       builds in near real time" is demonstrated.
 #
 # ClickHouse itself is NOT here. It is ClickHouse Cloud in ap-south-1, per the problem statement's
@@ -31,8 +32,13 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+      # LibreChat's public face: TLS terminated here, proxied to api:3080 on the compose network.
+      - "3080:3080"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Wildcard *.cricheroes.io cert. Built from ssl_star_dot_io/ (crt + ca-bundle -> fullchain).
+      - ./deploy/ssl:/etc/nginx/ssl:ro
     depends_on:
       - web
 
@@ -44,8 +50,9 @@ services:
     env_file: [.env]
     environment:
       # v1's "original corpus" position on the dataset switch. The unseen day is the other
-      # position and resolves to CH_UNSEEN_DATABASE.
-      CH_DATABASE: ${CH_DATABASE:-phoenix_live}
+      # position and resolves to CH_UNSEEN_DATABASE. Both are frozen databases;
+      # CH_INSIGHT_DATABASE is the live one the producer/ticker keep moving.
+      CH_DATABASE: ${CH_DATABASE:-phoenix_graded}
       CH_INSIGHT_DATABASE: ${CH_INSIGHT_DATABASE:-phoenix_live}
       CH_UNSEEN_DATABASE: ${CH_UNSEEN_DATABASE:-phoenix_unseen}
       # Reached through the proxy from the browser, but server-to-server on the compose network.
@@ -72,7 +79,7 @@ services:
       DB: ${LIVE_DB:-phoenix_live}
       # PERIOD must stay under the 90-second foreground tolerance or the population it is
       # re-heartbeating stops counting between cycles and the curve sawtooths.
-      TARGET: ${LIVE_TARGET:-12000}
+      TARGET: ${LIVE_TARGET:-6000}
       PERIOD: ${LIVE_PERIOD:-30}
       # Effectively unbounded: the demo host should still be live tomorrow morning.
       CYCLES: ${LIVE_CYCLES:-100000}
@@ -112,8 +119,9 @@ volumes:
   # Named, so the derive watermark outlives `docker compose up --force-recreate`.
   derive-state:
 
-# LibreChat, for the v2 Ask tab only. Behind a profile because the consoles are fully functional
-# without it and a judge should not have to wait for six extra containers to see the curve.
+# LibreChat, for the v2 Ask tab only. Genuinely behind a profile now (`profiles: ["chat"]` on
+# each service in librechat/docker-compose*.yml): the consoles are fully functional without it,
+# so a plain `docker compose up -d` starts only the four core containers.
 include:
   - path: librechat/docker-compose.yml
     project_directory: librechat

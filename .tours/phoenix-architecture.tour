@@ -1,0 +1,62 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Phoenix Architecture & Request Path",
+  "description": "Trace a concurrency request from docker-compose through serving queries and the live derivation pipeline",
+  "steps": [
+    {
+      "file": "docker-compose.yml",
+      "line": 27,
+      "description": "Five services orchestrate the pipeline: proxy (nginx TLS), web (Next.js consoles), producer (live event generation), ticker (incremental derivation), and chat (optional LibreChat). Everything routes through the proxy; internal services communicate via the compose network."
+    },
+    {
+      "file": "deploy/nginx.conf",
+      "line": 18,
+      "description": "Port 443 (HTTPS) is the public endpoint. The proxy routes / and /v2 to the web service, and /chat/ to LibreChat using lazy variable resolution so the app stays up if chat is down. All real work happens behind this single gateway."
+    },
+    {
+      "file": "deploy/nginx.conf",
+      "line": 41,
+      "description": "The LLM key for the Ask tab arrives as an X-LLM-Key header, never logged. This keeps model credentials out of nginx access logs handed to judges."
+    },
+    {
+      "file": "frontend/src/lib/datasets.server.ts",
+      "line": 46,
+      "description": "The dataset mapping: client sends an opaque id ('original' or 'unseen'), this lookup maps it to concrete database names and a table prefix. Anything unknown falls back to 'original'. Database names never come from the request."
+    },
+    {
+      "file": "frontend/src/lib/physicalTableNames.ts",
+      "line": 59,
+      "description": "All known table and materialized-view names are listed here. The withTablePrefix function rewrites query text, applying the unseen_ prefix identically across v1 and v2 so the unseen day's tables serve without SQL duplication."
+    },
+    {
+      "file": "frontend/src/app/api/concurrency/route.ts",
+      "line": 22,
+      "description": "A GET request arrives here. It parses filters (platform, country, etc. as bound parameters), resolves the dataset, and loads the concurrency_curve.sql query text. Two queries (curve and reach) run in parallel against the chosen database."
+    },
+    {
+      "file": "sql/queries/serving/concurrency_curve.sql",
+      "line": 1,
+      "description": "This is the concurrency curve query: minute-by-minute session count over a time window. The query is read from disk at request time, never embedded in the route, so it cannot drift from what actually executes. The TABLE_PREFIX mechanism resets table names if reading the unseen day."
+    },
+    {
+      "file": "scripts/live_producer.sh",
+      "line": 1,
+      "description": "Runs continuously while the app is live. Generates 15 Sony LIV streams, ~12k concurrent sessions, writing raw events every 30 seconds via a single INSERT with 40k+ rows (server-side generation via numbers(), no network transfer per row)."
+    },
+    {
+      "file": "scripts/derive_tick.sh",
+      "line": 1,
+      "description": "Called by the ticker service every few minutes. Runs an incremental retract-then-assert loop over a sliding window, deriving the ten insight tables (audience snapshots, retention, playback health, etc.) from raw events. The watermark (.derive_watermark.<db>) tracks progress and survives container restarts."
+    },
+    {
+      "file": "scripts/apply_live_ttl.sh",
+      "line": 1,
+      "description": "Optional, applied by hand to phoenix_live only. Sets a 48-hour DELETE TTL on live-ingest tables so the producer+ticker demo ages itself out instead of accumulating forever. Refuses to run on phoenix_graded (the frozen corpus) to protect the graded answers."
+    },
+    {
+      "file": "frontend/src/lib/ask.ts",
+      "line": 316,
+      "description": "The Ask tab's LLM guardrail: validateAskPrompt checks the user's question for length, injection patterns, and SQL keywords before sending to the model. Validates at the boundary, not in the model."
+    }
+  ]
+}

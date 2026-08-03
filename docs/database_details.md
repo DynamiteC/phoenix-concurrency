@@ -1,4 +1,4 @@
-# Database Details — Phoenix Concurrency on ClickHouse
+# Database Details, Phoenix Concurrency on ClickHouse
 
 ### The canonical dictionary for what is actually in the database
 
@@ -90,7 +90,7 @@ collapse to a 463 KiB serving table. Cost tracks interval boundaries, not watch 
 
 ## Layer 1: raw and reference
 
-### `raw_events` — every event, as delivered
+### `raw_events`, every event, as delivered
 
 `SharedMergeTree`, `ORDER BY (video_session_id, event_timestamp)`,
 `PARTITION BY toYYYYMMDD(event_timestamp)`.
@@ -126,7 +126,7 @@ The CSV carries timestamps as epoch milliseconds; the landing table accepts the 
 delivered and the view converts to `DateTime64(3)` on the way through, so loading needs no
 preprocessing step.
 
-### `content` — the catalogue
+### `content`, the catalogue
 
 `SharedReplacingMergeTree`, `ORDER BY content_id`. **33,464 rows**, 220.67 KiB. Of these, about
 **3,363** appear in the serving layer at any moment; the rest have no viewing in the window.
@@ -144,7 +144,7 @@ preprocessing step.
 A plain `LEFT JOIN` leaks duplicates. Use `LEFT` and not `INNER`: playback whose content is
 missing from the catalogue is still real viewing and must still be counted.
 
-### `event_state` — a view, not a table
+### `event_state`, a view, not a table
 
 Stores nothing; evaluated on read. Classifies every event into playback state and carries the
 last decisive state forward per session.
@@ -176,7 +176,7 @@ session runs. It narrows hard: two million events become a 113 KiB serving table
 tracks interval **boundaries** rather than watch time. A three-hour session costs the same two
 delta rows as a two-minute one.
 
-### `foreground_intervals` — when a session was genuinely watching
+### `foreground_intervals`, when a session was genuinely watching
 
 `SharedMergeTree`, `ORDER BY (video_session_id, interval_start)`. **1,531,152 rows**, 12.91 MiB.
 
@@ -203,7 +203,7 @@ about 1 percent of normal traffic.
 `event_state` runs at milliseconds, so a sub-second segment truncates to a point. It changes no
 output, because a viewer seen at 10:00:30 was indeed watching during the 10:00 minute.
 
-### `session_minute_runs` — active ranges, minute aligned, revisable
+### `session_minute_runs`, active ranges, minute aligned, revisable
 
 `SharedCollapsingMergeTree(sign)`, `ORDER BY (video_session_id, run_start, run_end)`.
 **566,930 physical rows, 83,102 asserted**, 14.31 MiB.
@@ -225,7 +225,7 @@ range keeps growing never requires a rebuild.
 Collapsing rather than mutation because a late heartbeat must be able to revise a published
 minute without `ALTER TABLE ... UPDATE`, which on a table this size would be a mutation storm.
 
-### `user_minute_runs` — the same, collapsed per user
+### `user_minute_runs`, the same, collapsed per user
 
 `SharedCollapsingMergeTree(sign)`, `ORDER BY (user_id, run_start, run_end)`.
 **370,054 physical rows, 73,582 asserted**, 5.64 MiB.
@@ -238,7 +238,7 @@ two sessions and one user.
 Dimensions are those of the user's earliest run, since a viewer can move across platforms
 mid-view and one row has to pick.
 
-### `concurrency_deltas` — what the dashboard reads
+### `concurrency_deltas`, what the dashboard reads
 
 `SharedSummingMergeTree(delta)`,
 `ORDER BY (platform, country, video_type, content_id, app_version, audio_language,
@@ -293,7 +293,7 @@ Same shape, same engine, same ordering key, fed from `user_minute_runs`. **34,00
 105.06 KiB, closure **0**. Read this for session-independent concurrency. It is not a copy: a user
 with two concurrent sessions counts 2 in `concurrency_deltas` and 1 here.
 
-### `concurrency_boundary_deltas` — exact, second resolution
+### `concurrency_boundary_deltas`, exact, second resolution
 
 `SharedSummingMergeTree(delta)`,
 `ORDER BY (platform, country, video_type, content_id, app_version, ts)`. **178,226 rows**,
@@ -304,7 +304,7 @@ second resolution. Larger than the minute table because boundaries falling in th
 cannot merge. Use it when the exact instant of a peak matters; use `concurrency_deltas` for
 everything else.
 
-### `concurrency_deltas_naive` — the deliberately wrong baseline
+### `concurrency_deltas_naive`, the deliberately wrong baseline
 
 `SharedSummingMergeTree(delta)`, same key and columns as `concurrency_deltas`. **15,725 rows**,
 40.79 KiB.
@@ -337,7 +337,7 @@ rather than audience **size**. All are `SharedReplacingMergeTree(version)`: a ro
 more of its aftermath arrives, and the newer version supersedes rather than accumulates. Query
 with `argMax(col, version)` grouped by the ordering key, or with `FINAL`.
 
-### `session_insight_facts` — one row per session, with its outcome
+### `session_insight_facts`, one row per session, with its outcome
 
 `ORDER BY (toDate(session_start), country, platform, content_id, session_start, video_session_id)`.
 **119,495 rows**, 6.56 MiB.
@@ -355,7 +355,7 @@ there".
 | Retention | `reached_first_heartbeat`, `active_after_1m`, `active_after_5m`, `active_after_10m`, `active_after_15m` | `UInt8` flags, `1` if still active at that mark |
 | Outcome | `ended_normally`, `abandoned`, `timed_out` | Mutually exclusive. `timed_out` means the heartbeats simply stopped, with no close event |
 
-### `audience_minute_snapshot` — the minute, fully described
+### `audience_minute_snapshot`, the minute, fully described
 
 `ORDER BY (minute, content_id, platform, country, video_type, app_version)`. **123,171 rows**,
 707.18 KiB.
@@ -374,7 +374,7 @@ Concurrency **plus the flow that produced it**, per minute per content.
 Use it to **explain** a curve. Do not serve a curve from it; that is what
 `concurrency_deltas` is for.
 
-### `playback_health_minute` — is it working, per minute
+### `playback_health_minute`, is it working, per minute
 
 `ORDER BY (minute, content_id, platform, country, app_version, video_type)`. **123,183 rows**,
 296.82 KiB.
@@ -389,7 +389,7 @@ Use it to **explain** a curve. Do not serve a curve from it; that is what
 infrastructure problem. The same drop with flat rates is the content ending. The curve alone
 cannot tell those apart.
 
-### `content_entry_cohorts` — did the audience it gained actually stay
+### `content_entry_cohorts`, did the audience it gained actually stay
 
 `ORDER BY (video_type, country, platform, app_version, content_id, cohort_minute)`.
 **16,967 rows**, 274.89 KiB.
@@ -406,7 +406,7 @@ Sessions grouped by the minute they entered a title, then followed forward.
 
 This is what separates an audience from a spike of people who left.
 
-### `concurrency_spike_events` — was that spike real
+### `concurrency_spike_events`, was that spike real
 
 `ORDER BY (content_id, window_start)`. Currently **empty**; populated by
 `sql/insights/spike/refresh_spike_events.sql`.
@@ -420,7 +420,7 @@ One row per detected ramp, carrying the verdict.
 | Why it did not | `entered_sessions`, `background_rate_after_peak`, `error_rate_after_peak`, `timeout_rate_after_peak` | Left voluntarily, or were pushed |
 | The verdict | `spike_type` (`healthy_sustained`, `short_lived`, `inconclusive`), `confidence` | One row to read instead of a join across two grains |
 
-### `late_event_audit` — what arrived after we had already answered
+### `late_event_audit`, what arrived after we had already answered
 
 `SharedMergeTree`, `ORDER BY (lateness_class, event_date, video_session_id, event_timestamp)`.
 Currently **empty**; filled by `late_event_audit_mv` as late data arrives.

@@ -157,8 +157,7 @@ with no sublinear term to hope for. Consequences, in the order they arrive:
 
 Compare with the concurrency curve, whose read does **not** shrink with the window because a
 cumulative sum must be seeded from the first minute of the series `[V:seeding_position]`. That one
-is a countdown against table size; this one scales with the window. Different failure modes, and
-`docs/STATUS.md` tracks the first as a deadline.
+is a countdown against table size; this one scales with the window. Different failure modes.
 
 ## Reproduce
 

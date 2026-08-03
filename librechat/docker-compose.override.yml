@@ -1,4 +1,10 @@
 services:
+  # mongo:7.0 pin note: mongod refuses to start on a data directory whose
+  # featureCompatibilityVersion is newer than the binary. If ./data-node was ever written by 8.0,
+  # the fix is to dump, delete the directory, and restore -- not to flip the tag back and forth.
+  mongodb:
+    image: mongo:7.0
+
   api:
     volumes:
       - type: bind
@@ -14,6 +20,7 @@ services:
   mcp-clickhouse:
     image: python:3.12-slim
     container_name: mcp-clickhouse
+    profiles: ["chat"]
     restart: always
     command: sh -c "pip install --quiet mcp-clickhouse && mcp-clickhouse"
     environment:

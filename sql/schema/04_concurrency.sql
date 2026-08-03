@@ -35,12 +35,11 @@ ENGINE = MergeTree
 -- physically present in system.parts and invisible to every SELECT.
 -- Daily rather than monthly because the unseen day lands in the same month as the demo rows, and
 -- a monthly key would make the mandatory pre-unseen-day cleanup impossible to do by partition.
--- PARTITION BY DAY. Known wart, measured and deliberately not changed under time pressure:
--- the unseen day's dirty tail (2014-12-31 to 2026-08-03) makes 189 daily partitions where one
--- holds 6,936,152 of 7,000,000 rows. A straight INSERT ... SELECT of the corpus fails with
--- TOO_MANY_PARTS. toYYYYMM is the fix and needs a full rebuild of both live databases; it is
--- recorded in docs/FINAL_CHECKLIST.md rather than applied at deploy time.
-PARTITION BY toYYYYMMDD(interval_start)
+-- PARTITION BY MONTH. FIX APPLIED. Was daily and a known wart: the unseen day's dirty tail
+-- (2014-12-31 to 2026-08-03) made 189 daily partitions where one held 6,936,152 of
+-- 7,000,000 rows, and a straight INSERT ... SELECT of the corpus failed with TOO_MANY_PARTS.
+-- toYYYYMM is that fix, applied here after the full rebuild of both live databases.
+PARTITION BY toYYYYMM(interval_start)
 ORDER BY (video_session_id, interval_start);
 
 CREATE TABLE IF NOT EXISTS session_minute_runs
@@ -78,12 +77,11 @@ CREATE TABLE IF NOT EXISTS session_minute_runs
     INDEX idx_user_id user_id TYPE bloom_filter GRANULARITY 4
 )
 ENGINE = CollapsingMergeTree(sign)
--- PARTITION BY DAY. Known wart, measured and deliberately not changed under time pressure:
--- the unseen day's dirty tail (2014-12-31 to 2026-08-03) makes 189 daily partitions where one
--- holds 6,936,152 of 7,000,000 rows. A straight INSERT ... SELECT of the corpus fails with
--- TOO_MANY_PARTS. toYYYYMM is the fix and needs a full rebuild of both live databases; it is
--- recorded in docs/FINAL_CHECKLIST.md rather than applied at deploy time.
-PARTITION BY toYYYYMMDD(run_start)
+-- PARTITION BY MONTH. FIX APPLIED. Was daily and a known wart: the unseen day's dirty tail
+-- (2014-12-31 to 2026-08-03) made 189 daily partitions where one held 6,936,152 of
+-- 7,000,000 rows, and a straight INSERT ... SELECT of the corpus failed with TOO_MANY_PARTS.
+-- toYYYYMM is that fix, applied here after the full rebuild of both live databases.
+PARTITION BY toYYYYMM(run_start)
 ORDER BY (video_session_id, run_start, run_end);
 
 -- ORDER BY puts dimensions FIRST and minute LAST, inverting the usual reflex on purpose:
@@ -118,12 +116,11 @@ CREATE TABLE IF NOT EXISTS concurrency_deltas
     delta       Int32
 )
 ENGINE = SummingMergeTree(delta)
--- PARTITION BY DAY. Known wart, measured and deliberately not changed under time pressure:
--- the unseen day's dirty tail (2014-12-31 to 2026-08-03) makes 189 daily partitions where one
--- holds 6,936,152 of 7,000,000 rows. A straight INSERT ... SELECT of the corpus fails with
--- TOO_MANY_PARTS. toYYYYMM is the fix and needs a full rebuild of both live databases; it is
--- recorded in docs/FINAL_CHECKLIST.md rather than applied at deploy time.
-PARTITION BY toYYYYMMDD(minute)
+-- PARTITION BY MONTH. FIX APPLIED. Was daily and a known wart: the unseen day's dirty tail
+-- (2014-12-31 to 2026-08-03) made 189 daily partitions where one held 6,936,152 of
+-- 7,000,000 rows, and a straight INSERT ... SELECT of the corpus failed with TOO_MANY_PARTS.
+-- toYYYYMM is that fix, applied here after the full rebuild of both live databases.
+PARTITION BY toYYYYMM(minute)
 ORDER BY (platform, country, video_type, content_id, app_version, audio_language, subtitle_language, player_version, video_resolution, minute);
 
 -- Insert-time MV: every run written becomes exactly two rows, +1 when it starts and -1 in

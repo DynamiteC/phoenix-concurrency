@@ -75,10 +75,10 @@ export default function QueryPanel({
         <span className={styles.summaryLabel}>Query sent</span>
         <span className={styles.cost}>
           {reads && <>reads <code>{reads}</code> &middot; </>}
-          {rowsRead != null && <>{nf.format(rowsRead)} rows</>}
-          {bytesRead != null && bytesRead > 0 && <> &middot; {bytes(bytesRead)}</>}
-          {serverMs != null && <> &middot; {serverMs} ms server</>}
-          {wallMs != null && <> &middot; {wallMs} ms wall</>}
+          {rowsRead != null && <><strong>{nf.format(rowsRead)}</strong> rows</>}
+          {bytesRead != null && bytesRead > 0 && <> &middot; <strong>{bytes(bytesRead)}</strong></>}
+          {serverMs != null && <> &middot; <strong>{serverMs} ms</strong> server</>}
+          {wallMs != null && <> &middot; <strong>{wallMs} ms</strong> wall</>}
         </span>
       </summary>
       {sql.map((text, i) => (

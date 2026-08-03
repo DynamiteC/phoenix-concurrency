@@ -52,12 +52,11 @@ CREATE TABLE IF NOT EXISTS raw_events
     arrival_timestamp   DateTime64(3) DEFAULT toDateTime64(0, 3)
 )
 ENGINE = MergeTree
--- PARTITION BY DAY. Known wart, measured and deliberately not changed under time pressure:
--- the unseen day's dirty tail (2014-12-31 to 2026-08-03) makes 189 daily partitions where one
--- holds 6,936,152 of 7,000,000 rows. A straight INSERT ... SELECT of the corpus fails with
--- TOO_MANY_PARTS. toYYYYMM is the fix and needs a full rebuild of both live databases; it is
--- recorded in docs/FINAL_CHECKLIST.md rather than applied at deploy time.
-PARTITION BY toYYYYMMDD(event_timestamp)
+-- PARTITION BY MONTH. FIX APPLIED. Was daily and a known wart: the unseen day's dirty tail
+-- (2014-12-31 to 2026-08-03) made 189 daily partitions where one held 6,936,152 of
+-- 7,000,000 rows, and a straight INSERT ... SELECT of the corpus failed with TOO_MANY_PARTS.
+-- toYYYYMM is that fix, applied here after the full rebuild of both live databases.
+PARTITION BY toYYYYMM(event_timestamp)
 ORDER BY (video_session_id, event_timestamp);
 
 -- Landing table matching the CSV exactly (epoch millis as Int64), so `load.sh` is a

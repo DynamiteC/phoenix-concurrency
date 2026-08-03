@@ -54,6 +54,25 @@ const fromInputValue = istInputToUtc
  *  latest ingested event (the frozen horizon defaults to a no-op, see lib/env.ts), so "last 3h"
  *  means the 3h ending wherever ingest has reached and it advances on every status tick. Custom
  *  is the one exception, taking an explicit user-picked from/to rather than deriving one. */
+/** The unseen corpus is one graded day (2026-07-31) plus a dirty tail of 1,640 stray rows
+ *  spanning 2014 through 2026-08-03. The tail's max IS the ingest watermark, so anchoring the
+ *  default window on frozenLatest lands on two days of near-empty noise instead of the day the
+ *  dataset exists to show. Clamping the anchors to a one-day pad around the graded day makes
+ *  every relative range (and 'all') land on real data; the tail stays reachable via custom. */
+const UNSEEN_LATEST = '2026-08-01 00:00:00.000'
+const UNSEEN_EARLIEST = '2026-07-24 00:00:00.000'
+
+function clampUnseen(status: StatusResponse | null, dataset: DatasetId): StatusResponse | null {
+  if (!status || dataset !== 'unseen') return status
+  const latest =
+    status.frozenLatest && status.frozenLatest > UNSEEN_LATEST ? UNSEEN_LATEST : status.frozenLatest
+  const earliest =
+    status.frozenEarliest && status.frozenEarliest < UNSEEN_EARLIEST
+      ? UNSEEN_EARLIEST
+      : status.frozenEarliest
+  return {...status, frozenLatest: latest, frozenEarliest: earliest}
+}
+
 function windowFor(
   range: RangeOption,
   status: StatusResponse | null,
@@ -148,9 +167,68 @@ function Provenance({data}: {data: ConcurrencyResponse}) {
   )
 }
 
+/**
+ * Every dimension the unseen day made filterable, keyed the same as ClientFilters, so a chip can
+ * write straight into the filter state with no translation step.
+ */
+const SUGGESTABLE_DIMS: {key: keyof ClientFilters; label: string}[] = [
+  {key: 'platform', label: 'platform'},
+  {key: 'app_version', label: 'app version'},
+  {key: 'video_type', label: 'video type'},
+]
+
+/**
+ * Three chips built from whatever the dimension endpoint actually returned for the unseen
+ * corpus, shown only on that dataset. The unseen day is one real day plus a dirty tail spanning
+ * 2014-2026 (lib/datasets.ts), so an empty rail full of "all" dropdowns gives no hint that a
+ * filter is worth touching at all; the first real value of each dimension is a starting point a
+ * viewer would otherwise have to discover by opening every dropdown in FilterRail.
+ */
+function SuggestedFilters({
+                             dims,
+                             filters,
+                             onFiltersChange,
+                           }: {
+  dims: DimensionValue[]
+  filters: ClientFilters
+  onFiltersChange: (next: ClientFilters) => void
+}) {
+  const chips = SUGGESTABLE_DIMS
+    .map(({key, label}) => ({key, label, value: dims.find((d) => d.dim === key)?.value}))
+    .filter((c): c is {key: keyof ClientFilters; label: string; value: string} => Boolean(c.value))
+  if (chips.length === 0) return null
+
+  return (
+    <div className={styles.suggested}>
+      <span className={styles.suggestedLabel}>Try</span>
+      {chips.map((c) => {
+        const active = filters[c.key] === c.value
+        return (
+          <button
+            key={c.key}
+            type="button"
+            className={`${styles.chip} ${active ? styles.chipActive : ''}`}
+            aria-pressed={active}
+            // Clicking an active chip clears it rather than re-applying the same filter, so the
+            // chip doubles as the only control needed to both set and unset the suggestion.
+            onClick={() => onFiltersChange({...filters, [c.key]: active ? '' : c.value})}
+          >
+            {c.label}: {c.value}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [dims, setDims] = useState<DimensionValue[]>([])
   const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS)
+  // Original defaults to the 3h view, unchanged. The DatasetSwitch handler below sets this to
+  // '24' the first time a viewer switches to the unseen dataset, because that corpus is one real
+  // day (2026-07-31): a wide default window drags in the dirty tail behind it and renders a curve
+  // that means nothing. 'all' stays selectable, it is just not what a first-time viewer lands on.
+  // Switching back to original does not touch range at all, same as before this control existed.
   const [range, setRange] = useState<RangeOption>('3')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -194,7 +272,7 @@ export default function Dashboard() {
         const s = statusBody as StatusResponse
         if (cancelled) return
         setStatus(s)
-        const w = windowFor(range, s, customFrom, customTo)
+        const w = windowFor(range, clampUnseen(s, dataset), customFrom, customTo)
         if (!w) return   // no watermark yet: ask for nothing rather than for everything
         const {from, to} = w
         const withWindow: ClientFilters = {...filters, from_ts: from, to_ts: to}
@@ -235,7 +313,7 @@ export default function Dashboard() {
    *  just looking at. */
   function handleRangeChange(r: RangeOption) {
     if (r === 'custom' && !customFrom && !customTo && status) {
-      const seed = windowFor(range, status, '', '') ?? {from: '', to: ''}
+      const seed = windowFor(range, clampUnseen(status, dataset), '', '') ?? {from: '', to: ''}
       setCustomFrom(toInputValue(seed.from))
       setCustomTo(toInputValue(seed.to))
     }
@@ -281,6 +359,12 @@ export default function Dashboard() {
               setSessionData(null)
               setUserData(null)
               setDataset(id)
+              // The unseen corpus is one real day of live traffic (2026-07-31) plus a dirty tail
+              // spanning 2014-2026 (lib/datasets.ts): 'all' or the default 3h window either render
+              // a near-empty curve or one drowned in the tail. '24' is the real day. Only the
+              // unseen path is touched here: switching to original leaves range exactly as it was,
+              // same as before this control did anything to it at all.
+              if (id === 'unseen') setRange('24')
             }}
           />
         <FilterRail
@@ -306,6 +390,10 @@ export default function Dashboard() {
             <ModeSwitch mode={mode} onChange={setMode}/>
             {error && <span className={styles.errorTag}>{error}</span>}
           </div>
+
+          {dataset === 'unseen' && (
+            <SuggestedFilters dims={dims} filters={filters} onFiltersChange={setFilters}/>
+          )}
 
           {mode === 'open' && <OpenSessions asOf={status?.latestEvent ?? null}/>}
 

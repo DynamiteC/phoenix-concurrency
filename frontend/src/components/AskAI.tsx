@@ -15,21 +15,31 @@ async function safeJson(res: Response): Promise<any> {
   }
 }
 
+/** General enough to be true of either console, shown when a caller does not pass its own set. */
+const DEFAULT_STARTERS = [
+  'What was the peak concurrency in the last 3 hours?',
+  'Which platform has the most active sessions right now?',
+  'What does this data cover?',
+]
+
 interface Props {
-  /** Which console is asking. /api/ask is pinned to phoenix, /api/v2/ask to phoenix_next. The
+  /** Which console is asking. /api/ask is pinned to phoenix_graded, /api/v2/ask to phoenix_live. The
    *  endpoint is the ONLY thing that differs between the two, and the database it may read is
    *  fixed server-side rather than sent from here: a client that could name its own database
    *  would hand that choice to anything able to get a message into the thread. */
   endpoint?: '/api/ask' | '/api/v2/ask'
   /** What this console's assistant reads, named on screen so the answer's source is not a guess. */
   reads?: string
+  /** Starter chips shown while the input is empty and the thread hasn't started, grounded in
+   *  what the console's own views actually answer rather than generic chat-bot small talk. */
+  starterQuestions?: string[]
 }
 
 /** Natural-language fallback for questions with no fixed query to hardcode. Calls the real
  *  LibreChat agent (LLM + clickhouse MCP tool) through the API rather than duplicating a chat
  *  UI here: every other mode answers a known question fast and without an LLM, and this is the
  *  one place that trades that speed for an open-ended question. */
-export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props = {}) {
+export default function AskAI({endpoint = '/api/ask', reads = 'phoenix_graded', starterQuestions = DEFAULT_STARTERS}: Props = {}) {
   const [thread, setThread] = useState<AskMessage[]>([])
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
@@ -38,8 +48,10 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props 
   // deployment. Held in component state only: never written to localStorage, never put in a URL,
   // never sent anywhere but the Authorization header this app builds server-side. It is gone the
   // moment the tab closes, which is exactly what the disclaimer below promises.
+  // Bring-your-own-key by design: never ship a default. A key baked into the client bundle is
+  // public the moment the page loads.
   const [apiKey, setApiKey] = useState('')
-  const [provider, setProvider] = useState<LlmProvider>('anthropic')
+  const [provider, setProvider] = useState<LlmProvider>('google')
   const [keyOpen, setKeyOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -47,8 +59,10 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props 
     listRef.current?.scrollTo({top: listRef.current.scrollHeight})
   }, [thread, pending])
 
-  async function send() {
-    const text = input.trim()
+  /** `override` lets a starter chip submit its own text directly rather than round-tripping
+   *  through `input` state, which would not have updated yet in the same tick as the click. */
+  async function send(override?: string) {
+    const text = (override ?? input).trim()
     if (!text || pending) return
     const next: AskMessage[] = [...thread, {role: 'user', content: text}]
     setThread(next)
@@ -180,6 +194,25 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props 
 
       {error && <p className={styles.error}>{error}</p>}
 
+      {/* Starter chips, only while there is nothing typed and nothing asked yet: once a thread
+          exists these would be sitting above a real conversation, suggesting questions instead
+          of answering the one already asked. */}
+      {thread.length === 0 && !input.trim() && starterQuestions.length > 0 && (
+        <div className={styles.starters} role="group" aria-label="Starter questions">
+          {starterQuestions.map((q) => (
+            <button
+              key={q}
+              type="button"
+              className={styles.starterChip}
+              disabled={pending}
+              onClick={() => send(q)}
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={styles.inputRow}>
         <input
           className={styles.input}
@@ -194,10 +227,13 @@ export default function AskAI({endpoint = '/api/ask', reads = 'phoenix'}: Props 
           }}
           disabled={pending}
         />
-        <button className={styles.send} onClick={send} disabled={pending || !input.trim()}>
+        <button className={styles.send} onClick={() => send()} disabled={pending || !input.trim()}>
           {pending ? '…' : 'Send'}
         </button>
       </div>
+
+      {/* Unobtrusive, not a disclaimer: just where the traces actually go. */}
+      <p className={styles.langfuseNote}>Traces logged to Langfuse.</p>
     </div>
   )
 }

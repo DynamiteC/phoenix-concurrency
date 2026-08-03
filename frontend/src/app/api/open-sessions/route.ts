@@ -31,7 +31,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<OpenSessionsRe
   }
   const t0 = Date.now()
   try {
-    const result = await chQuery(servingSql('open_sessions.sql'), {
+    const result = await chQuery(servingSql('open_sessions.sql', dataset.tablePrefix), {
       as_of: asOf,
       tolerance_s: TOLERANCE_S,
             row_limit: ROW_LIMIT,

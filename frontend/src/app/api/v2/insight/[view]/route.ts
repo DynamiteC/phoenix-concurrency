@@ -142,7 +142,7 @@ export async function GET(
   const dataset = resolveDataset(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
-    const sql = insightSql(spec.file)
+    const sql = insightSql(spec.file, dataset.tablePrefix)
     const result = await insightQuery(sql, filters, dataset.insights)
     return NextResponse.json({
       view,

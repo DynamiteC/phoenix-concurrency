@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS content_entry_cohorts
     updated_at DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(version)
-PARTITION BY toYYYYMMDD(cohort_minute)
+PARTITION BY toYYYYMM(cohort_minute)
 -- RE-KEYED, and this one also fixes a correctness hazard. The old key was (content_id,
 -- cohort_minute, platform, country, app_version), which omitted video_type. This is a
 -- ReplacingMergeTree, so ORDER BY IS the dedup key, and the refresh writes at a grain that

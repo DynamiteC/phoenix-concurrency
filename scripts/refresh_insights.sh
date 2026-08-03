@@ -3,7 +3,12 @@
 #
 #   ./scripts/refresh_insights.sh                                   # full, wide window
 #   FROM_TS='2026-07-26 00:00:00' TO_TS='2026-07-27 00:00:00' ./scripts/refresh_insights.sh
-#   CH_DATABASE=phoenix_next ./scripts/refresh_insights.sh
+#   CH_DATABASE=phoenix_live ./scripts/refresh_insights.sh
+#   TABLE_PREFIX=unseen_ CH_DATABASE=phoenix_graded ./scripts/refresh_insights.sh
+#
+# TABLE_PREFIX, unset by default, rewrites every physical name this script touches (the pipeline
+# files, the spike classifier, and the invariant queries below) to ${TABLE_PREFIX}name, same
+# mechanism and shared name list as init_db.sh and derive.sh; see scripts/prefix_sql.sh.
 #
 # NO REFUSE-AND-REBUILD GUARD, and the contrast with scripts/derive.sh is the point rather than
 # an oversight. derive.sh must refuse to run twice because 02_merge_runs.sql asserts sign = +1
@@ -15,22 +20,24 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . scripts/lib/evidence.sh
+. scripts/prefix_sql.sh
+trap cleanup_prefixed_sql_files EXIT
 
-DB="${CH_DATABASE:-phoenix_next}"
+DB="${CH_DATABASE:-phoenix_live}"
 export CH_DATABASE="$DB" EVIDENCE_STAMP_DB="$DB"
 FROM_TS="${FROM_TS:-2000-01-01 00:00:00}"
 TO_TS="${TO_TS:-2100-01-01 00:00:00}"
 TOL="${TOLERANCE_S:-90}"
 
 ch() { ./scripts/ch.sh "$@"; }
-val() { ch --format TSVRaw --query "$1" 2>/dev/null | head -1; }
+val() { ch --format TSVRaw --query "$(prefix_sql_text "$1")" 2>/dev/null | head -1; }
 
-echo "== refreshing insights in $DB for events in [$FROM_TS, $TO_TS)" >&2
+echo "== refreshing insights in $DB for events in [$FROM_TS, $TO_TS)${TABLE_PREFIX:+ (prefix: $TABLE_PREFIX)}" >&2
 t0=$(date +%s)
 for f in sql/insights/pipeline/*.sql; do
   [ -e "$f" ] || { echo "no insight pipeline files yet" >&2; exit 0; }
   echo "== $(basename "$f")" >&2
-  ch --queries-file "$f" \
+  ch --queries-file "$(prefixed_sql_file "$f")" \
      --param_tolerance_s="$TOL" --param_from_ts="$FROM_TS" --param_to_ts="$TO_TS" 2>/dev/null
 done
 t1=$(date +%s)
@@ -75,8 +82,9 @@ spike_ids="$(val "
 
 spike_content=0
 if [ -n "${spike_ids// /}" ]; then
+  spike_sql_file="$(prefixed_sql_file sql/insights/spike/refresh_spike_events.sql)"
   for cid in $spike_ids; do
-    ch --queries-file sql/insights/spike/refresh_spike_events.sql \
+    ch --queries-file "$spike_sql_file" \
        --param_content_id="$cid" --param_from_ts="$FROM_TS" --param_to_ts="$TO_TS" \
        --param_version="$spike_version" 2>/dev/null || {
          echo "   spike classification failed for content_id $cid" >&2; continue; }

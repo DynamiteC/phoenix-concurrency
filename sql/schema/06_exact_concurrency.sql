@@ -36,12 +36,11 @@ CREATE TABLE IF NOT EXISTS concurrency_boundary_deltas
     delta       Int32
 )
 ENGINE = SummingMergeTree(delta)
--- PARTITION BY DAY. Known wart, measured and deliberately not changed under time pressure:
--- the unseen day's dirty tail (2014-12-31 to 2026-08-03) makes 189 daily partitions where one
--- holds 6,936,152 of 7,000,000 rows. A straight INSERT ... SELECT of the corpus fails with
--- TOO_MANY_PARTS. toYYYYMM is the fix and needs a full rebuild of both live databases; it is
--- recorded in docs/FINAL_CHECKLIST.md rather than applied at deploy time.
-PARTITION BY toYYYYMMDD(ts)
+-- PARTITION BY MONTH. FIX APPLIED. Was daily and a known wart: the unseen day's dirty tail
+-- (2014-12-31 to 2026-08-03) made 189 daily partitions where one held 6,936,152 of
+-- 7,000,000 rows, and a straight INSERT ... SELECT of the corpus failed with TOO_MANY_PARTS.
+-- toYYYYMM is that fix, applied here after the full rebuild of both live databases.
+PARTITION BY toYYYYMM(ts)
 ORDER BY (platform, country, video_type, content_id, app_version, audio_language, subtitle_language, player_version, video_resolution, ts);
 
 -- Fires on the batch derive's insert into foreground_intervals. Zero-length intervals are

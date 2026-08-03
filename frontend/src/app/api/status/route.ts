@@ -15,7 +15,7 @@ export async function GET(req: NextRequest): Promise<NextResponse<StatusResponse
   const dataset = resolveDataset(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
-    const result = await chQuery(servingSql('ingest_status.sql'), {}, dataset.concurrency)
+    const result = await chQuery(servingSql('ingest_status.sql', dataset.tablePrefix), {}, dataset.concurrency)
     const row = result.data[0]
     if (!row) throw new Error('ingest_status.sql returned no rows')
     const col = columnReader(result.meta)

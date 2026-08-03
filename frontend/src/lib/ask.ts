@@ -5,8 +5,8 @@
 // comes from a browser, and the agent it is forwarded to holds a ClickHouse MCP tool that can read
 // the graded corpus. So this file does three things a plain forward would not.
 //
-//   1. It PINS THE DATABASE per console. v1 asks about `phoenix`, v2 about `phoenix_next`, and the
-//      console cannot choose: the value is a literal in the route, never a request field.
+//   1. It PINS THE DATABASE per console. v1 asks about `phoenix_graded`, v2 about `phoenix_live`, and
+//      the console cannot choose: the value is a literal in the route, never a request field.
 //   2. It OWNS THE SYSTEM PROMPT. The client may only send `user` and `assistant` turns. A thread
 //      carrying role: 'system' is the simplest prompt injection there is, and the previous version
 //      forwarded whatever roles it was handed.
@@ -34,7 +34,7 @@ const hits: number[] = []
 
 export interface AskScope {
   /** The ONLY database this console's assistant may read. Pinned by the route, never by the client. */
-  database: 'phoenix' | 'phoenix_next'
+  database: 'phoenix_graded' | 'phoenix_live'
   /** What this console is for, in one line, so the agent answers in the right register. */
   role: string
   /** The tables it should reach for first, most useful first. */
@@ -45,8 +45,9 @@ export interface AskScope {
    * THIS IS THE TOKEN OPTIMISATION, and it is worth the words it costs. Left to itself an agent
    * holding list_databases, list_tables and run_query opens with two discovery calls before it can
    * write anything, and list_tables returns the full CREATE statement for every table in the
-   * database. Measured against the live MCP server: 89,159 characters for phoenix and 192,789 for
-   * phoenix_next, roughly 22K and 48K tokens, to answer a question whose answer is one row.
+   * database. Measured against the live MCP server: 89,159 characters for phoenix_graded and
+   * 192,789 for phoenix_live, roughly 22K and 48K tokens, to answer a question whose answer is one
+   * row.
    *
    * The blocks below are 2.2K and 4.0K characters. So this trades about 1K tokens of fixed cost
    * for 48K of variable cost, and three round trips for one. It is also more accurate than
@@ -59,7 +60,7 @@ export interface AskScope {
 }
 
 export const V1_SCOPE: AskScope = {
-  database: 'phoenix',
+  database: 'phoenix_graded',
   role:
     'the foreground-only concurrency console: how many people were genuinely watching at each ' +
     'minute, peak and average, and how that changes under a filter',
@@ -95,7 +96,7 @@ export const V1_SCOPE: AskScope = {
 }
 
 export const V2_SCOPE: AskScope = {
-  database: 'phoenix_next',
+  database: 'phoenix_live',
   role:
     'the audience intelligence console: why concurrency moved, whether the audience it gained ' +
     'stayed, which app version loses viewers, and what arrived late',
@@ -253,6 +254,99 @@ export function validateThread(body: unknown): Validated {
     return {ok: false, error: 'the last message must be from the user', status: 400}
   }
   return {ok: true, messages}
+}
+
+/** Longest prompt the gate below will consider. Past this it is refused on length alone, before
+ *  the injection and on-topic checks even run. */
+const MAX_PROMPT_CHARS = 1000
+
+/**
+ * Phrasings that try to walk the agent off its own system prompt rather than ask it a question.
+ * Case-insensitive; matched against the raw text, not tokenised, since these are lifted straight
+ * from known jailbreak phrasing and a fuzzier match would trade precision for nothing this demo
+ * needs.
+ */
+const INJECTION_PATTERNS: RegExp[] = [
+  /ignore\s+(all\s+)?(the\s+)?previous/i,
+  /disregard\s+(the|all|previous)\s+instructions/i,
+  /system\s*prompt/i,
+  /you\s+are\s+now/i,
+  /\bact\s+as\b/i,
+  /jailbreak/i,
+  /developer\s+mode/i,
+  /pretend\s+(to\s+be|you'?re|you\s+are)/i,
+  /change\s+your\s+role/i,
+  /new\s+instructions/i,
+  /reveal\s+(your\s+)?(instructions|prompt|api\s*key)/i,
+  /(show|print|what'?s|what\s+is|what\s+are)\s+(your\s+)?(system\s+prompt|instructions)/i,
+]
+
+/**
+ * Grounds a question in this app's actual domain: streaming concurrency, sessions, and the ten
+ * v2 view names. One keyword hit is enough; the bar is "on topic", not "precisely phrased", since
+ * a real analytics question can be worded a hundred ways and the gate's job is to catch
+ * "what's the capital of France", not to grade phrasing.
+ */
+const ON_TOPIC_KEYWORDS = [
+  'concurren', 'viewer', 'session', 'user', 'spike', 'stream', 'content', 'platform',
+  'playback', 'buffer', 'error', 'app version', 'retention', 'cohort', 'lateness', 'late event',
+  'forecast', 'audience', 'minute', 'peak', 'drop', 'switch', 'handoff', 'health', 'table',
+  'quer', 'sql', 'data', 'flow', 'state', 'version', 'device',
+]
+
+export type AskPromptCheck = {ok: true} | {ok: false; reason: string}
+
+/**
+ * The prompt-injection and off-topic gate, checked before a question ever reaches LibreChat.
+ *
+ * validateThread (above) bounds SHAPE: turn count, per-message length, total characters, roles.
+ * A thread can pass every one of those checks and still be one user turn that tries to override
+ * the system prompt, or a question that has nothing to do with this dataset at all. Both are
+ * cheaper to refuse here, with one string check, than after an LLM call has already spent budget
+ * answering them.
+ *
+ * PURE AND EXPORTED so scripts/check_ask_guardrails.sh can exercise it directly rather than only
+ * through a running server, the same reason validateThread is exported.
+ *
+ * WHAT THIS IS NOT. Same caveat as the system prompt itself: this is a cost and quality filter,
+ * not the security boundary. The durable control is still the read-only ClickHouse credential the
+ * MCP server holds. A phrasing that slips past this check reaches an agent that cannot write
+ * regardless, which is the boundary that actually matters.
+ */
+export function validateAskPrompt(prompt: string): AskPromptCheck {
+  const trimmed = prompt.trim()
+  const friendly =
+    'I can only answer questions about this app’s streaming data: concurrency, sessions, ' +
+    'playback health, retention, app versions, and the other views on this console. Ask me ' +
+    'something about that.'
+
+  if (!trimmed) {
+    return {ok: false, reason: 'Ask a question about the streaming data to get started.'}
+  }
+  if (trimmed.length > MAX_PROMPT_CHARS) {
+    return {
+      ok: false,
+      reason: `That question is longer than ${MAX_PROMPT_CHARS} characters. Ask something shorter about the streaming data.`,
+    }
+  }
+
+  const lower = trimmed.toLowerCase()
+
+  if (INJECTION_PATTERNS.some((p) => p.test(lower))) {
+    return {
+      ok: false,
+      reason:
+        'I can’t follow instructions embedded in a question, only answer questions about ' +
+        'the streaming data. Ask me something about concurrency, sessions, or the other views ' +
+        'on this console.',
+    }
+  }
+
+  if (!ON_TOPIC_KEYWORDS.some((k) => lower.includes(k))) {
+    return {ok: false, reason: friendly}
+  }
+
+  return {ok: true}
 }
 
 /** True while the process is inside its budget. Coarse on purpose: a demo, not a public API. */

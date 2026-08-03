@@ -1,10 +1,19 @@
-// Ask AI for the v1 concurrency console, pinned to the graded `phoenix` database.
+// Ask AI for the v1 concurrency console, pinned to the frozen `phoenix_graded` database.
 //
 // The handler is thin on purpose: validation, the system prompt, the database pin and the rate
 // limit all live in lib/ask.ts, which /api/v2/ask uses too. Two consoles asking two questions of
 // two databases is a difference of one constant, and everything that makes this safe is shared.
 import {NextRequest, NextResponse} from 'next/server'
-import {AskCredentialError, askAgent, askConfigError, requestCredential, V1_SCOPE, validateThread, withinRateLimit} from '@/lib/ask'
+import {
+  AskCredentialError,
+  askAgent,
+  askConfigError,
+  requestCredential,
+  V1_SCOPE,
+  validateAskPrompt,
+  validateThread,
+  withinRateLimit,
+} from '@/lib/ask'
 import type {AskResponse, ApiError} from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -27,6 +36,14 @@ export async function POST(req: NextRequest): Promise<NextResponse<AskResponse |
   // untestable on a machine that has not set the agent up yet, which is every machine at first run.
   const check = validateThread(body)
   if (!check.ok) return NextResponse.json({error: check.error}, {status: check.status})
+
+  // The injection and off-topic gate, checked on the latest turn only (validateThread guarantees
+  // it is role: 'user'). A rejection here returns 200 with the refusal in the normal answer
+  // shape, so the UI renders it like any other reply, and never reaches LibreChat: an off-topic
+  // or adversarial prompt should not spend the model budget the rate limit above is protecting.
+  const lastMessage = check.messages[check.messages.length - 1]
+  const promptCheck = validateAskPrompt(lastMessage?.content ?? '')
+  if (!promptCheck.ok) return NextResponse.json({content: promptCheck.reason, ms: 0})
 
   // Read from headers, so the key never enters a URL, an access log or system.query_log.
   // A supplied-but-invalid key now throws rather than silently falling back to the server's

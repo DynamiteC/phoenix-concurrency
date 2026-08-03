@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest): Promise<NextResponse<DimensionsResponse | ApiError>> {
   const dataset = resolveDataset(req.nextUrl.searchParams)
   try {
-    const result = await chQuery(servingSql('dimension_values.sql'), {}, dataset.concurrency)
+    const result = await chQuery(servingSql('dimension_values.sql', dataset.tablePrefix), {}, dataset.concurrency)
     const col = columnReader(result.meta)
     const values = result.data
       .map((row) => ({

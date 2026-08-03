@@ -21,8 +21,8 @@ export async function GET(req: NextRequest): Promise<NextResponse<ConcurrencyRes
   const dataset = resolveDataset(req.nextUrl.searchParams)
   const t0 = Date.now()
   try {
-    const curveSql = servingSql('user_concurrency_curve.sql')
-    const reachSql = servingSql('reach.sql')
+    const curveSql = servingSql('user_concurrency_curve.sql', dataset.tablePrefix)
+    const reachSql = servingSql('reach.sql', dataset.tablePrefix)
     const [curve, reach] = await Promise.all([
       chQuery(curveSql, filters, dataset.concurrency),
       chQuery(reachSql, filters, dataset.concurrency),
