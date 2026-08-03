@@ -51,7 +51,7 @@ while true; do
 
   if [ -n "$WATERMARK" ]; then
     FROM_TS="$(CH_DATABASE="$DB" ./scripts/ch.sh --format TSVRaw --query \
-      "SELECT toString(toDateTime('$WATERMARK') - INTERVAL $LOOKBACK_MIN MINUTE)" 2>/dev/null | head -1)"
+      "SELECT toString(toDateTime64('$WATERMARK', 3) - INTERVAL $LOOKBACK_MIN MINUTE)" 2>/dev/null | head -1)"
     # Same treatment, and deliberately NOT echoing this stage's own "verdict PASS" line. The
     # insight refresh printing PASS directly after a failed derive made the whole loop read as
     # healthy to anyone skimming `docker compose logs ticker`. A subordinate component's verdict

@@ -124,7 +124,14 @@ ORDER BY transitions DESC
 -- runaway one teaches a reader to raise it without looking, which is worse than no guard.
 -- Sized at roughly 4x the current table so it still catches a join that fans out, and it is a
 -- CEILING, not a target: the measured read for a one-day window is 576,093 rows.
-SETTINGS max_rows_to_read = 9000000,
-         max_bytes_to_read = 820000000,
+-- RESIZED AGAIN (2026-08-03), same lesson one size larger. The live table crossed 9M physical
+-- rows: a wedged producer left the ticker re-deriving one stale window on repeat, and each pass
+-- adds retraction+assertion pairs that only collapse when merges catch up. 12.1M physical rows
+-- carried 1.9M net that day, so the honest full-range scan tripped the guard while the answer
+-- itself was fine. Sized ~4x the physical count measured during that incident so the budget
+-- survives churn between TTL drops; the bytes ceiling scales with it (measured 124 MiB on disk
+-- at 10.6M rows, so 3.6 GB of uncompressed read is still a fan-out catcher, not a target).
+SETTINGS max_rows_to_read = 40000000,
+         max_bytes_to_read = 3600000000,
          max_execution_time = 30,
          timeout_before_checking_execution_speed = 0;

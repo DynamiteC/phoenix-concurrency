@@ -98,7 +98,13 @@ val() { ch --format TSVRaw --query "$1" | head -1; }
 # So the corpus reads bind frozen_before EXPLICITLY, at the graded boundary, whatever the ambient
 # environment says.
 CORPUS_BEFORE="${CORPUS_BEFORE:-2026-08-01}"
-cval() { ch --format TSVRaw --param_frozen_before "$CORPUS_BEFORE" --query "$1" | head -1; }
+# AND THE CORPUS READS BIND THE FROZEN DATABASE, NOT $DB. phoenix_live carries a 48h DELETE TTL
+# (scripts/apply_live_ttl.sh), so every corpus-era row in it is gone by construction and the
+# vocabulary samples below returned the literal '[]': non-empty, so the -n guard passed, and every
+# insert then died on `[] AS tvt` with "Invalid projection column with type Nothing". The frozen
+# database is the only one guaranteed to still hold the corpus this section is defined against.
+CORPUS_DB="${CORPUS_DB:-phoenix_graded}"
+cval() { CH_DATABASE="$CORPUS_DB" ch --format TSVRaw --param_frozen_before "$CORPUS_BEFORE" --query "$1" | head -1; }
 
 # --------------------------------------------------------------------------------------------
 # Stream schedule. Fifteen real live-type titles, resolved from the content table at startup so
@@ -165,7 +171,11 @@ IFS=',' read -r -a CIDS <<<"$CONTENT_IDS"
 
 TUP_TV="$(tuples_for tv)"
 TUP_MO="$(tuples_for mobile)"
-[ -n "$TUP_TV" ] && [ -n "$TUP_MO" ] || { echo "REFUSING: could not sample dimension tuples" >&2; exit 1; }
+# '[]' is what groupArray returns over zero rows: a non-empty STRING that is an empty ARRAY, so
+# the -n test alone waves through exactly the failure it exists to catch.
+for t in "$TUP_TV" "$TUP_MO"; do
+  case "$t" in ''|'[]') echo "REFUSING: sampled an empty dimension vocabulary from $CORPUS_DB (TTL'd or wrong CORPUS_DB?)" >&2; exit 1;; esac
+done
 
 # Declared synthesis. Cumulative weights out of 1000: india 92%, then the diaspora tail.
 CTYS="['india','usa','uae','uk','singapore','australia','canada']"
